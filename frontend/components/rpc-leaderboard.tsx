@@ -1,9 +1,11 @@
 "use client";
 
 import { Radio, Server } from "lucide-react";
+import { useMemo } from "react";
 
 import { cn } from "@/lib/cn";
-import { MONITORED_RPCS } from "@/lib/etn";
+import { resolveEndpointReading } from "@/lib/endpoint-selection";
+import { MONITORED_RPCS, type SelectedEndpoint } from "@/lib/etn";
 import {
   driftTone,
   formatCount,
@@ -21,10 +23,11 @@ import { Skeleton } from "./ui/skeleton";
 
 interface RpcLeaderboardProps {
   rpcs: RpcProbe[];
-  activeRpcId: string | null;
+  /** The endpoint the dashboard is currently bound to. */
+  selectedEndpoint: SelectedEndpoint;
   /** Blocks a node may lag before it is reported as out of sync. */
   driftThreshold: number;
-  onSelect: (rpcId: string) => void;
+  onSelect: (selection: SelectedEndpoint) => void;
   loading: boolean;
 }
 
@@ -34,12 +37,17 @@ const COLUMNS = ["Endpoint", "Status", "Latency", "Block", "Drift"] as const;
 
 export function RpcLeaderboard({
   rpcs,
-  activeRpcId,
+  selectedEndpoint,
   driftThreshold,
   onSelect,
   loading,
 }: RpcLeaderboardProps) {
   const showSkeleton = loading && rpcs.length === 0;
+  // Which node "Auto" currently resolves to, so the table can show it.
+  const fastestId = useMemo(
+    () => resolveEndpointReading(rpcs, "fastest").rpc?.id ?? null,
+    [rpcs],
+  );
 
   return (
     <GlassCard className="p-5">
@@ -48,9 +56,26 @@ export function RpcLeaderboard({
         subtitle={`Latency probe + sync check · over ${driftThreshold} blocks behind is flagged`}
         icon={<Radio className="h-4 w-4" />}
         action={
-          <span className="num rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[0.68rem] text-slate-500">
-            {rpcs.length > 0 ? `${rpcs.length} endpoints` : `${PLACEHOLDERS.length} configured`}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelect("fastest")}
+              aria-pressed={selectedEndpoint === "fastest"}
+              title="Follow the lowest latency across online endpoints"
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[0.68rem] font-medium uppercase tracking-[0.12em] transition",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50",
+                selectedEndpoint === "fastest"
+                  ? "bg-cyan-500/15 text-cyan-300 ring-1 ring-inset ring-cyan-500/30"
+                  : "text-slate-500 ring-1 ring-inset ring-slate-800 hover:text-cyan-300",
+              )}
+            >
+              Auto · fastest
+            </button>
+            <span className="num rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[0.68rem] text-slate-500">
+              {rpcs.length > 0 ? `${rpcs.length} endpoints` : `${PLACEHOLDERS.length} configured`}
+            </span>
+          </div>
         }
       />
 
@@ -94,7 +119,10 @@ export function RpcLeaderboard({
                   </tr>
                 ))
               : rpcs.map((rpc) => {
-                  const isActive = rpc.id === activeRpcId;
+                  const isActive = selectedEndpoint === rpc.id;
+                  // In auto mode the node being followed is highlighted instead.
+                  const isFollowed = selectedEndpoint === "fastest" && rpc.id === fastestId;
+                  const isHighlighted = isActive || isFollowed;
                   const isOffline = rpc.status === "offline";
                   const outOfSync = rpc.drift !== null && rpc.drift > driftThreshold;
 
@@ -104,7 +132,7 @@ export function RpcLeaderboard({
                       onClick={() => onSelect(rpc.id)}
                       className={cn(
                         "cursor-pointer transition duration-200 ease-out-expo",
-                        isActive ? "bg-cyan-500/[0.06]" : "hover:bg-slate-800/30",
+                        isHighlighted ? "bg-cyan-500/[0.06]" : "hover:bg-slate-800/30",
                       )}
                     >
                       <td className="py-4 pr-4">
@@ -128,6 +156,11 @@ export function RpcLeaderboard({
                               {rpc.role === "official" ? (
                                 <span className="rounded-full bg-cyan-500/10 px-1.5 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider text-cyan-300 ring-1 ring-inset ring-cyan-500/20">
                                   Official
+                                </span>
+                              ) : null}
+                              {isFollowed ? (
+                                <span className="rounded-full bg-status-healthy/10 px-1.5 py-0.5 text-[0.6rem] font-medium uppercase tracking-wider text-status-healthy ring-1 ring-inset ring-status-healthy/20">
+                                  Fastest
                                 </span>
                               ) : null}
                             </div>

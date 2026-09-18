@@ -1,4 +1,4 @@
-import type { RpcRole } from "./etn";
+import type { RpcId, RpcRole } from "./etn";
 
 /**
  * Health of a single RPC endpoint.
@@ -11,7 +11,7 @@ export type RpcStatus = "healthy" | "degraded" | "offline";
 
 /** Result of concurrently pinging one RPC and reading its block number. */
 export interface RpcProbe {
-  id: string;
+  id: RpcId;
   /** Short label used in the UI, e.g. "Official". */
   name: string;
   /** Full label, e.g. "Electroneum Official". */

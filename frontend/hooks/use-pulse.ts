@@ -9,6 +9,12 @@ import type { PulseConnection, PulseHistoryPoint, PulseSnapshot } from "@/lib/ty
 /** Faster cadence while polls are failing, so the dashboard recovers quickly. */
 const RETRY_INTERVAL_MS = 2000;
 
+/**
+ * A pulse older than this counts as stale, and only then does the UI surface
+ * its age. Three missed cycles at the default cadence.
+ */
+export const STALE_AFTER_MS = POLL_INTERVAL_MS * 3;
+
 export interface UsePulseResult {
   snapshot: PulseSnapshot | null;
   history: PulseHistoryPoint[];
@@ -17,7 +23,12 @@ export interface UsePulseResult {
   lastUpdated: number | null;
   /** True only until the first response (success *or* failure) lands. */
   isLoading: boolean;
-  isPolling: boolean;
+  /** True while a request is actually in flight — drives the refresh spinner. */
+  isFetching: boolean;
+  /** True when there is no successful pulse yet, or the last one is too old. */
+  isStale: boolean;
+  /** Age of the last successful pulse in ms; null until the first success. */
+  pulseAgeMs: number | null;
   /** Milliseconds spent waiting for that first response. */
   elapsedMs: number;
   refresh: () => void;
@@ -40,7 +51,7 @@ export function usePulse(intervalMs: number = POLL_INTERVAL_MS): UsePulseResult 
   const [connection, setConnection] = useState<PulseConnection>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
 
@@ -54,7 +65,7 @@ export function usePulse(intervalMs: number = POLL_INTERVAL_MS): UsePulseResult 
     if (fetchingRef.current) return false;
 
     fetchingRef.current = true;
-    setIsPolling(true);
+    setIsFetching(true);
 
     try {
       const next = await fetchPulse(signal);
@@ -77,7 +88,7 @@ export function usePulse(intervalMs: number = POLL_INTERVAL_MS): UsePulseResult 
       return false;
     } finally {
       fetchingRef.current = false;
-      if (mountedRef.current) setIsPolling(false);
+      if (mountedRef.current) setIsFetching(false);
     }
   }, []);
 
@@ -126,14 +137,23 @@ export function usePulse(intervalMs: number = POLL_INTERVAL_MS): UsePulseResult 
     };
   }, [attempt, intervalMs, load]);
 
-  // Warm-up clock: only ticks while the first response is still outstanding.
+  // Warm-up: true only until the first response (success or failure) lands.
   const isWarmingUp = snapshot === null && error === null;
 
+  const pulseAgeMs = lastUpdated === null ? null : Math.max(0, clock - lastUpdated);
+  const isStale = pulseAgeMs === null || pulseAgeMs > STALE_AFTER_MS;
+
+  /**
+   * Keep a live clock only while the UI actually renders something time-based.
+   * During healthy operation nothing shows an age, so ticking every second
+   * would be a re-render per second for no visible change.
+   */
+  const needsClock = isStale || connection !== "live";
   useEffect(() => {
-    if (!isWarmingUp) return;
-    const interval = setInterval(() => setClock(Date.now()), 500);
+    if (!needsClock) return;
+    const interval = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [isWarmingUp]);
+  }, [needsClock]);
 
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
 
@@ -144,7 +164,9 @@ export function usePulse(intervalMs: number = POLL_INTERVAL_MS): UsePulseResult 
     error,
     lastUpdated,
     isLoading: isWarmingUp,
-    isPolling,
+    isFetching,
+    isStale,
+    pulseAgeMs,
     elapsedMs: isWarmingUp ? Math.max(0, clock - startedAtRef.current) : 0,
     refresh,
   };

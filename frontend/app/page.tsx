@@ -10,7 +10,8 @@ import { ModuleHub } from "@/components/module-hub";
 import { RpcLeaderboard } from "@/components/rpc-leaderboard";
 import { usePulse } from "@/hooks/use-pulse";
 import { cn } from "@/lib/cn";
-import { DRIFT_THRESHOLD, ETN_EXPLORER_URL, POLL_INTERVAL_MS } from "@/lib/etn";
+import { resolveEndpointReading } from "@/lib/endpoint-selection";
+import { DRIFT_THRESHOLD, ETN_EXPLORER_URL, type SelectedEndpoint } from "@/lib/etn";
 import { buildLatencySeries } from "@/lib/pulse-client";
 import type { PulseConnection } from "@/lib/types";
 
@@ -99,19 +100,25 @@ export default function Page() {
     error,
     lastUpdated,
     isLoading,
-    isPolling,
+    isFetching,
+    isStale,
     elapsedMs,
     refresh,
   } = usePulse();
 
-  const [trackedRpcId, setTrackedRpcId] = useState<string | null>(null);
+  const [selectedEndpoint, setSelectedEndpoint] = useState<SelectedEndpoint>("fastest");
 
-  const activeRpcId = trackedRpcId ?? snapshot?.fastestRpcId ?? snapshot?.rpcs[0]?.id ?? null;
-  const activeRpc = useMemo(
-    () => snapshot?.rpcs.find((rpc) => rpc.id === activeRpcId) ?? null,
-    [snapshot, activeRpcId],
+  // A single resolver feeds the KPI card, the leaderboard highlight and the
+  // chart, so they can never disagree about which endpoint is being displayed.
+  const reading = useMemo(
+    () => resolveEndpointReading(snapshot?.rpcs ?? [], selectedEndpoint),
+    [snapshot, selectedEndpoint],
   );
-  const series = useMemo(() => buildLatencySeries(history, activeRpcId), [history, activeRpcId]);
+  const activeRpc = reading.rpc;
+  const series = useMemo(
+    () => buildLatencySeries(history, activeRpc?.id ?? null),
+    [history, activeRpc],
+  );
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
@@ -119,7 +126,8 @@ export default function Page() {
         <Hero
           connection={connection}
           lastUpdated={lastUpdated}
-          isPolling={isPolling}
+          isFetching={isFetching}
+          isStale={isStale}
           onRefresh={refresh}
         />
 
@@ -127,15 +135,20 @@ export default function Page() {
 
         <AlertBanner error={error} connection={connection} />
 
-        <KpiCards snapshot={snapshot} history={history} loading={isLoading} />
+        <KpiCards
+          snapshot={snapshot}
+          history={history}
+          selectedEndpoint={selectedEndpoint}
+          loading={isLoading}
+        />
 
         <div className="grid gap-4 lg:grid-cols-5 lg:gap-6">
           <div className="lg:col-span-3">
             <RpcLeaderboard
               rpcs={snapshot?.rpcs ?? []}
-              activeRpcId={activeRpcId}
+              selectedEndpoint={selectedEndpoint}
               driftThreshold={snapshot?.driftThreshold ?? DRIFT_THRESHOLD}
-              onSelect={setTrackedRpcId}
+              onSelect={setSelectedEndpoint}
               loading={isLoading}
             />
           </div>
@@ -147,9 +160,7 @@ export default function Page() {
         <ModuleHub />
 
         <footer className="flex flex-col gap-2 border-t border-slate-800/80 pt-5 text-[0.7rem] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-          <p className="num">
-            ETN Pulse · chain 52014 · polling /api/pulse every {POLL_INTERVAL_MS / 1000}s
-          </p>
+          <p className="num">ETN Pulse · chain 52014 · read-only network telemetry</p>
           <a
             href={ETN_EXPLORER_URL}
             target="_blank"

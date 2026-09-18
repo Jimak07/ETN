@@ -5,6 +5,8 @@ import { useMemo, type ReactNode } from "react";
 
 import { useAnimatedNumber } from "@/hooks/use-animated-number";
 import { cn } from "@/lib/cn";
+import { resolveEndpointReading } from "@/lib/endpoint-selection";
+import type { SelectedEndpoint } from "@/lib/etn";
 import {
   formatBlockAge,
   formatCount,
@@ -13,7 +15,7 @@ import {
   parseDecimalString,
   statusLabel,
 } from "@/lib/format";
-import type { PulseHistoryPoint, PulseSnapshot, RpcProbe } from "@/lib/types";
+import type { PulseHistoryPoint, PulseSnapshot, RpcStatus } from "@/lib/types";
 
 import { GlassCard } from "./ui/glass-card";
 import { Skeleton } from "./ui/skeleton";
@@ -51,14 +53,11 @@ function estimateBlockTimeSeconds(history: PulseHistoryPoint[]): number | null {
   return null;
 }
 
-function pickFastest(snapshot: PulseSnapshot | null): RpcProbe | null {
-  if (!snapshot) return null;
-  return snapshot.rpcs.find((rpc) => rpc.id === snapshot.fastestRpcId) ?? null;
-}
-
-function latencyAccent(rpc: RpcProbe | null): Accent {
-  if (!rpc || rpc.status === "offline") return "rose";
-  return rpc.status === "healthy" ? "emerald" : "amber";
+/** Status -> KPI accent. A missing status (nothing answered) reads as offline. */
+function latencyAccent(status: RpcStatus | null): Accent {
+  if (status === "healthy") return "emerald";
+  if (status === "degraded") return "amber";
+  return "rose";
 }
 
 interface KpiCardProps {
@@ -116,12 +115,21 @@ function KpiCard({ label, icon, accent, value, unit, hint, loading }: KpiCardPro
 interface KpiCardsProps {
   snapshot: PulseSnapshot | null;
   history: PulseHistoryPoint[];
+  /** Which endpoint the latency KPI mirrors. */
+  selectedEndpoint: SelectedEndpoint;
   loading: boolean;
 }
 
-export function KpiCards({ snapshot, history, loading }: KpiCardsProps) {
-  const fastest = useMemo(() => pickFastest(snapshot), [snapshot]);
+export function KpiCards({ snapshot, history, selectedEndpoint, loading }: KpiCardsProps) {
   const blockTime = useMemo(() => estimateBlockTimeSeconds(history), [history]);
+
+  // The latency card is bound to the current selection: "fastest" reports the
+  // minimum across online nodes, a pinned endpoint reports its own exact ms and
+  // status (including "—" / Offline when that node is down).
+  const reading = useMemo(
+    () => resolveEndpointReading(snapshot?.rpcs ?? [], selectedEndpoint),
+    [snapshot, selectedEndpoint],
+  );
 
   const gasPriceGwei = useMemo(
     () => parseDecimalString(snapshot?.gasPriceGwei),
@@ -131,7 +139,7 @@ export function KpiCards({ snapshot, history, loading }: KpiCardsProps) {
 
   const animatedBlock = useAnimatedNumber(snapshot?.highestNetworkBlock ?? null);
   const animatedGas = useAnimatedNumber(gasPriceGwei);
-  const animatedLatency = useAnimatedNumber(fastest?.latencyMs ?? null);
+  const animatedLatency = useAnimatedNumber(reading.latencyMs);
 
   const blockHint = [
     blockTime ? `~${blockTime.toFixed(1)}s block time` : "sync window warming up",
@@ -143,9 +151,15 @@ export function KpiCards({ snapshot, history, loading }: KpiCardsProps) {
       ? `base fee ${formatGasPrice(baseFeeGwei)} Gwei`
       : "legacy gas pricing detected";
 
-  const latencyHint = fastest
-    ? `${fastest.name} · ${statusLabel(fastest.status)}`
+  const latencyHint = reading.rpc
+    ? reading.aggregated
+      ? `${reading.rpc.name} · min of ${reading.onlineCount} online`
+      : `${reading.rpc.displayName} · ${statusLabel(reading.rpc.status)}`
     : "all endpoints unreachable";
+
+  const latencyLabel = reading.aggregated
+    ? "Fastest RPC Latency"
+    : `${reading.rpc?.name ?? "RPC"} Latency`;
 
   return (
     <section aria-label="Network key metrics" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -167,9 +181,9 @@ export function KpiCards({ snapshot, history, loading }: KpiCardsProps) {
         loading={loading}
       />
       <KpiCard
-        label="Fastest RPC Latency"
+        label={latencyLabel}
         icon={<Gauge className="h-4 w-4" />}
-        accent={latencyAccent(fastest)}
+        accent={latencyAccent(reading.status)}
         value={animatedLatency === null ? "—" : formatLatency(animatedLatency)}
         unit="ms"
         hint={latencyHint}

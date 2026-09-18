@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { ETN_CHAIN_ID, ETN_CHAIN_NAME } from "@/lib/etn";
@@ -12,7 +12,10 @@ import { AddEtnButton } from "./add-etn-button";
 interface HeroProps {
   connection: PulseConnection;
   lastUpdated: number | null;
-  isPolling: boolean;
+  /** True while a request is in flight — the icon spins only then. */
+  isFetching: boolean;
+  /** True when the last pulse is missing or too old to trust. */
+  isStale: boolean;
   onRefresh: () => void;
 }
 
@@ -23,10 +26,14 @@ const CONNECTION_COPY: Record<PulseConnection, { label: string; tone: string }> 
   offline: { label: "Offline", tone: "text-status-offline" },
 };
 
-export function Hero({ connection, lastUpdated, isPolling, onRefresh }: HeroProps) {
-  const relativeTime = useRelativeTime(lastUpdated);
+export function Hero({ connection, lastUpdated, isFetching, isStale, onRefresh }: HeroProps) {
+  // Age is surfaced only when it matters: an error/timeout, or a pulse that has
+  // gone stale. Healthy operation shows no elapsed time at all.
+  const showAge = isStale || connection !== "live";
+  const relativeTime = useRelativeTime(lastUpdated, { enabled: showAge });
   const copy = CONNECTION_COPY[connection];
   const isAlive = connection !== "offline";
+  const ageLabel = lastUpdated === null ? "Awaiting first pulse" : `Last pulse ${relativeTime}`;
 
   return (
     <header className="glass-panel shadow-card animate-fade-up px-5 py-6 sm:px-7 sm:py-8">
@@ -65,15 +72,23 @@ export function Hero({ connection, lastUpdated, isPolling, onRefresh }: HeroProp
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-2.5">
             <span className={cn("text-xs font-medium", copy.tone)}>{copy.label}</span>
-            <span className="h-4 w-px bg-slate-800" aria-hidden />
-            <span className="num text-xs text-slate-500">{relativeTime}</span>
+            {showAge ? (
+              <>
+                <span className="h-4 w-px bg-slate-800" aria-hidden />
+                <span className="num text-xs text-slate-500">{ageLabel}</span>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={onRefresh}
               aria-label="Refresh network telemetry"
+              aria-busy={isFetching}
+              title="Refresh now"
               className="ml-1 rounded-md p-1 text-slate-500 transition hover:bg-slate-800/60 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
             >
-              <RefreshCw className={cn("h-3.5 w-3.5", isPolling && "animate-spin text-cyan-300")} />
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", isFetching && "animate-spin text-cyan-300")}
+              />
             </button>
           </div>
 
@@ -82,9 +97,6 @@ export function Hero({ connection, lastUpdated, isPolling, onRefresh }: HeroProp
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-800/80 pt-4 text-[0.7rem] text-slate-500">
-        <span className="inline-flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5 text-cyan-400/80" /> 5s polling
-        </span>
         <span className="num">official + ankr endpoints</span>
         <span className="num">explorer · blockexplorer.electroneum.com</span>
       </div>

@@ -26,9 +26,31 @@ export const ETN_NATIVE_CURRENCY = {
 
 export type RpcRole = "official" | "public";
 
+/**
+ * Stable ids of the monitored endpoints.
+ *
+ * Declared as literals so the dashboard can model "which endpoint am I
+ * watching?" as a closed union rather than a bare string.
+ */
+export type RpcId = "official" | "ankr";
+
+export const RPC_IDS: readonly RpcId[] = ["official", "ankr"];
+
+/**
+ * What the dashboard is currently bound to:
+ *
+ *   "official" | "ankr" -> that node's exact latency and status
+ *   "fastest"           -> the minimum latency across every online node
+ */
+export type SelectedEndpoint = "fastest" | RpcId;
+
+export function isRpcId(value: string): value is RpcId {
+  return RPC_IDS.some((id) => id === value);
+}
+
 export interface MonitoredRpc {
   /** Stable key used for history graphs and React keys. */
-  id: string;
+  id: RpcId;
   /** Short label reported in the API payload, e.g. "Official". */
   name: string;
   /** Full label for UI headings, e.g. "Electroneum Official". */
