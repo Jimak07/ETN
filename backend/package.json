@@ -1,0 +1,28 @@
+{
+  "name": "etn-pulse-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless ETN-SC monitoring worker: polls the Electroneum RPCs, measures latency and block drift, persists samples to Supabase and raises Discord alerts.",
+  "type": "module",
+  "main": "dist/poller.js",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/poller.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/poller.js",
+    "once": "tsx src/poller.ts --once",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

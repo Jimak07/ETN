@@ -70,7 +70,7 @@ function normalizeDecimal(value: number | string | null | undefined): string | n
 /**
  * Thin PostgREST client (no SDK dependency required).
  *
- * Schema: see `supabase/schema.sql`. Writes use `Prefer: return=minimal` so a
+ * Schema: see `../supabase/schema.sql`. Writes use `Prefer: return=minimal` so a
  * successful insert costs nothing extra on the wire.
  */
 class SupabasePulseStore implements PulseStore {
