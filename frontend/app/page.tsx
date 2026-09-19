@@ -4,16 +4,31 @@ import { ExternalLink, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Hero } from "@/components/hero";
+import { GasHeatmap } from "@/components/gas-heatmap";
 import { KpiCards } from "@/components/kpi-cards";
 import { LatencySparkline } from "@/components/latency-sparkline";
 import { ModuleHub } from "@/components/module-hub";
 import { RpcLeaderboard } from "@/components/rpc-leaderboard";
+import { UptimeMetric } from "@/components/uptime-metric";
+import { useAnalytics } from "@/hooks/use-analytics";
 import { usePulse } from "@/hooks/use-pulse";
+import type { GasExtreme, GasHeatmapCell, RpcUptime } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { resolveEndpointReading } from "@/lib/endpoint-selection";
 import { DRIFT_THRESHOLD, ETN_EXPLORER_URL, type SelectedEndpoint } from "@/lib/etn";
 import { buildLatencySeries } from "@/lib/pulse-client";
 import type { PulseConnection } from "@/lib/types";
+
+/**
+ * Stable empties: the analytics cards memoise their derived grids on these
+ * arrays, so a fresh `[]` per render would rebuild 168 buckets every poll.
+ */
+const NO_UPTIME: RpcUptime[] = [];
+const NO_HEATMAP: GasHeatmapCell[] = [];
+const NO_EXTREMES: { cheapest: GasExtreme | null; priciest: GasExtreme | null } = {
+  cheapest: null,
+  priciest: null,
+};
 
 interface AlertBannerProps {
   error: string | null;
@@ -106,6 +121,11 @@ export default function Page() {
     refresh,
   } = usePulse();
 
+  // Aggregate history: a 24h uptime window and a day/hour gas profile. Polled
+  // far more lazily than the live pulse, and independent of it — a missing
+  // Supabase view degrades these two cards alone.
+  const analytics = useAnalytics();
+
   const [selectedEndpoint, setSelectedEndpoint] = useState<SelectedEndpoint>("fastest");
 
   // A single resolver feeds the KPI card, the leaderboard highlight and the
@@ -143,7 +163,9 @@ export default function Page() {
         />
 
         <div className="grid gap-4 lg:grid-cols-5 lg:gap-6">
-          <div className="lg:col-span-3">
+          {/* min-w-0: without it the grid track refuses to shrink below the
+              leaderboard table's min-content width, stretching the page. */}
+          <div className="min-w-0 lg:col-span-3">
             <RpcLeaderboard
               rpcs={snapshot?.rpcs ?? []}
               selectedEndpoint={selectedEndpoint}
@@ -152,10 +174,25 @@ export default function Page() {
               loading={isLoading}
             />
           </div>
-          <div className="lg:col-span-2">
-            <LatencySparkline series={series} rpc={activeRpc} loading={isLoading} />
+          <div className="min-w-0 lg:col-span-2">
+            <UptimeMetric
+              uptime={analytics.data?.uptime ?? NO_UPTIME}
+              loading={analytics.isLoading}
+              configured={analytics.data?.configured ?? null}
+              error={analytics.error}
+            />
           </div>
         </div>
+
+        <LatencySparkline series={series} rpc={activeRpc} loading={isLoading} />
+
+        <GasHeatmap
+          cells={analytics.data?.gasHeatmap ?? NO_HEATMAP}
+          extremes={analytics.data?.extremes ?? NO_EXTREMES}
+          loading={analytics.isLoading}
+          configured={analytics.data?.configured ?? null}
+          error={analytics.error}
+        />
 
         <ModuleHub />
 

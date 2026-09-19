@@ -17,10 +17,10 @@ break the other's build.
 
 ```
 frontend/                 Next.js dashboard
-  app/                    routes, layout, globals.css, /api/pulse
-  components/             hero, KPI cards, leaderboard, sparkline, glass primitives
-  hooks/                  usePulse polling loop, animated numbers, relative time
-  lib/                    ETN config, viem client factory, engine, store, formatting
+  app/                    routes, layout, globals.css, /api/pulse, /api/analytics
+  components/             hero, KPI cards, leaderboard, uptime, gas heatmap, sparkline
+  hooks/                  usePulse + useAnalytics polling loops, animated numbers
+  lib/                    ETN config, viem client factory, engine, store, analytics, formatting
   next.config.mjs  postcss.config.mjs  tailwind.config.ts  tsconfig.json
   .env.example            optional Supabase read credentials
 backend/                  headless monitoring worker
@@ -31,7 +31,8 @@ backend/                  headless monitoring worker
   src/notify.ts           Discord webhook alerting
   src/config.ts  src/etn.ts  src/types.ts
   .env.example            Supabase + Discord credentials
-supabase/schema.sql       database migration (run once)
+supabase/schema.sql       database migration (run first)
+supabase/02_analytics_views.sql  analytics views (run after schema.sql)
 package.json              convenience scripts that delegate to both workspaces
 ```
 
@@ -82,10 +83,20 @@ The constants are mirrored in `frontend/lib/etn.ts` and `backend/src/etn.ts` (th
   loaders until the first response lands.
 - **RPC leaderboard** — status, latency, block height and drift for each endpoint.
 - **Sparkline** — Recharts latency history for the selected RPC.
+- **24h uptime** — trailing-window reliability per endpoint, next to the leaderboard: green at or
+  above the 99% threshold, amber below it, with probe counts, average/p95 latency and the last
+  failure.
+- **Gas heatmap** — a 7x24 Tailwind grid of average gas price by UTC day and hour, shaded green
+  (cheapest) through to red (dearest), with a hover tooltip carrying the exact Gwei average, min,
+  max and sample count.
 
 It polls `/api/pulse` every 5 seconds. Requests are bounded end to end: a 3 s timeout per RPC probe,
 1.5 s for the follow-up block/gas read, a 5 s server deadline and an 8 s client timeout, so a poll
 always resolves into a valid snapshot instead of hanging on "connecting".
+
+The two analytics cards read `/api/analytics` through `useAnalytics`, on a 60 s cadence (15 s after
+a failure). They are independent of the pulse: a missing view degrades only those cards, and each
+falls back to an explanatory empty state rather than a spinner.
 
 ### API contract
 
@@ -207,6 +218,51 @@ cycle idempotent instead of raising a primary-key conflict.
 
 The frontend only needs credentials if it should read history directly from Supabase; without them
 it keeps the last `HISTORY_LIMIT` samples in memory, so the dashboard works with zero configuration.
+
+Run `supabase/02_analytics_views.sql` after `schema.sql`. It adds two read-only aggregate views over
+`pulse_samples`, both created with `security_invoker = on` so they honour the caller's row level
+security rather than silently bypassing it:
+
+- `pulse_uptime_24h` — per-RPC uptime over the trailing 24 hours. A probe counts as successful when
+  it reported a latency (`latencies->>id`) and as failed when it timed out or went offline. Also
+  exposes average / p95 / min / max latency, the degraded-probe count and the last failure time.
+- `pulse_gas_heatmap` — average, min, max and standard deviation of `gas_price_gwei` per
+  (day of week, hour) bucket, for finding the cheapest windows to transact.
+
+RPC ids are discovered from the JSONB keys, so a third endpoint appears in both views automatically.
+Buckets are UTC; changing the timezone in the SQL also means updating the `timezone` field the
+analytics route reports.
+
+### Analytics contract
+
+`GET /api/analytics` reads both views with the anon key and returns them in one envelope. The two
+queries run independently, so one broken view degrades the payload into `errors` instead of blanking
+it, and each query is bounded by an 8 s timeout:
+
+```json
+{
+  "ok": true,
+  "configured": true,
+  "checkedAt": "2026-09-19T11:00:40.630Z",
+  "chainId": 52014,
+  "timezone": "UTC",
+  "uptime": [
+    { "rpcId": "official", "uptimePct": 99.83, "totalSamples": 17280, "successfulSamples": 17250,
+      "failedSamples": 30, "p95LatencyMs": 310, "degradedSamples": 42,
+      "lastFailureAt": "2026-09-19T10:12:00.000Z" }
+  ],
+  "gasHeatmap": [
+    { "dayOfWeek": 1, "dayName": "Monday", "hourOfDay": 14, "label": "Monday 14:00",
+      "sampleCount": 720, "avgGasPriceGwei": "0.0012" }
+  ],
+  "extremes": { "cheapest": null, "priciest": null },
+  "errors": []
+}
+```
+
+`200` when every query succeeds, `503` when a query fails (the failing view is named in `errors`,
+with a pointer to `supabase/02_analytics_views.sql` when the view is missing), and `200` with
+`"configured": false` when no Supabase credentials are set at all.
 
 ## Troubleshooting
 
