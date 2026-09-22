@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
 import {
+  DEFAULT_WSS_URL,
   DRIFT_THRESHOLD,
   LATENCY_THRESHOLD_MS,
   POLL_INTERVAL_MS,
@@ -33,6 +34,14 @@ export interface WorkerConfig {
   /** null when Supabase is not configured; the worker then logs to stdout only. */
   supabase: SupabaseConfig | null;
   discordWebhookUrl: string | null;
+  /**
+   * `newHeads` stream URL, or null when the stream is switched off.
+   *
+   * The stream is an enhancement, never a dependency: the HTTP poll stays the
+   * source of truth for latency and drift, so a deployment that cannot reach a
+   * WebSocket still records every other column.
+   */
+  wssUrl: string | null;
   /** `--once` runs a single cycle and exits (useful for cron and smoke tests). */
   runOnce: boolean;
 }
@@ -52,6 +61,16 @@ function readPositiveInt(name: string, fallback: number): number {
 function readOptional(name: string): string | null {
   const raw = process.env[name]?.trim();
   return raw ? raw : null;
+}
+
+function readBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+
+  console.warn(`[config] ${name}="${raw}" is not a boolean - using ${fallback}`);
+  return fallback;
 }
 
 export function loadConfig(argv: readonly string[] = process.argv.slice(2)): WorkerConfig {
@@ -75,6 +94,11 @@ export function loadConfig(argv: readonly string[] = process.argv.slice(2)): Wor
         ? { url, serviceRoleKey, table: readOptional("SUPABASE_PULSE_TABLE") ?? "pulse_samples" }
         : null,
     discordWebhookUrl: readOptional("DISCORD_WEBHOOK_URL"),
+    // An empty WSS_RPC_URL in .env is the same as leaving it unset, so the
+    // placeholder in .env.example does not silently disable the stream.
+    wssUrl: readBoolean("WSS_ENABLED", true)
+      ? (readOptional("WSS_RPC_URL") ?? DEFAULT_WSS_URL)
+      : null,
     runOnce: argv.includes("--once"),
   };
 }

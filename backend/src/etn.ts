@@ -57,3 +57,32 @@ export const LATENCY_THRESHOLD_MS = 500;
 
 /** Hard ceiling for a single JSON-RPC round trip. */
 export const RPC_REQUEST_TIMEOUT_MS = 3000;
+
+/**
+ * WebSocket endpoint for the `newHeads` subscription in `src/wss.ts`.
+ *
+ * The official node terminates WSS on the same host that serves HTTPS, which
+ * makes it the natural default: it is the endpoint the HTTP poll already
+ * trusts, so a difference between the two transports is a difference in
+ * transport, not in the node behind it.
+ */
+export const ETN_WSS_URL = "wss://rpc.electroneum.com";
+
+/**
+ * Ankr publishes per-chain streams under a `/ws` suffix rather than on the
+ * HTTPS path. Kept here as the documented alternative for WSS_RPC_URL; it is
+ * not used by default because it is a different node than the one measured over
+ * HTTP, which would put two variables in one measurement.
+ */
+export const ANKR_WSS_URL = "wss://rpc.ankr.com/electroneum/ws";
+
+/** The stream subscribed to unless WSS_RPC_URL overrides it. */
+export const DEFAULT_WSS_URL = ETN_WSS_URL;
+
+/**
+ * A stream that has delivered nothing for this long is treated as dead and
+ * re-subscribed. viem reconnects a dropped socket and replays its subscription
+ * on its own, but its reconnect budget (5 attempts, 2s apart, in viem 2.x) can
+ * be spent, after which the subscription is dropped silently for good.
+ */
+export const WSS_STALE_AFTER_MS = 30_000;

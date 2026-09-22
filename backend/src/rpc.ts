@@ -110,7 +110,9 @@ export async function probeRpc(
   const blockQuery = (async () => {
     const startedAt = performance.now();
     const blockNumber = toSafeNumber(await client.getBlockNumber(), "block number");
-    return { blockNumber, latencyMs: elapsedSince(startedAt) };
+    // Stamped the moment the response lands, not when the batch settles: a slow
+    // sibling endpoint must not look like a slow block read.
+    return { blockNumber, latencyMs: elapsedSince(startedAt), observedAt: Date.now() };
   })();
 
   const [pingResult, blockResult] = await Promise.allSettled([ping, blockQuery]);
@@ -123,6 +125,7 @@ export async function probeRpc(
       ...base,
       latencyMs: pingResult.status === "fulfilled" ? pingResult.value : null,
       blockNumber: null,
+      blockObservedAt: null,
       drift: null,
       status: "offline",
       error: describeError(blockResult.reason),
@@ -136,6 +139,7 @@ export async function probeRpc(
     ...base,
     latencyMs,
     blockNumber: blockResult.value.blockNumber,
+    blockObservedAt: blockResult.value.observedAt,
     drift: null,
     status: classifyLatency(latencyMs, latencyThresholdMs),
   };
@@ -168,11 +172,33 @@ export async function probeAllRpcs(
       url: rpc.url,
       latencyMs: null,
       blockNumber: null,
+      blockObservedAt: null,
       drift: null,
       status: "offline" as const,
       error: describeError(entry.reason),
     };
   });
+}
+
+/**
+ * Earliest wall-clock moment any HTTP probe saw `blockNumber`.
+ *
+ * The minimum rather than the average: the question being answered is "when did
+ * the network first tell us about this height over HTTP", and the node that
+ * answered first did exactly that. Returns null when no probe reported that
+ * height, which is the normal case for a height the stream saw between cycles.
+ */
+export function httpObservedAt(
+  rpcs: readonly RpcProbe[],
+  blockNumber: number | null,
+): number | null {
+  if (blockNumber === null) return null;
+
+  const sightings = rpcs
+    .filter((rpc) => rpc.blockNumber === blockNumber && rpc.blockObservedAt !== null)
+    .map((rpc) => rpc.blockObservedAt as number);
+
+  return sightings.length > 0 ? Math.min(...sightings) : null;
 }
 
 export interface ChainStats {

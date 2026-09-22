@@ -28,6 +28,7 @@ backend/                  headless monitoring worker
   src/server.ts           node:http web service (/, /health)
   src/poller.ts           the polling loop itself
   src/rpc.ts              viem clients, latency ping, block reads
+  src/wss.ts              newHeads subscription + stream-vs-poll head start
   src/drift.ts            pure drift/synchronisation validation
   src/supabase.ts         headless Supabase client + row mapping
   src/notify.ts           Discord webhook alerting
@@ -36,6 +37,7 @@ backend/                  headless monitoring worker
 supabase/schema.sql       database migration (run first)
 supabase/02_analytics_views.sql  analytics views (run after schema.sql)
 supabase/03_latency_series.sql   latency chart buckets (run after the views)
+supabase/04_wss_latency.sql      adds pulse_samples.wss_latency (run last)
 render.yaml               Render Blueprint: the backend as a free-tier web service
 package.json              convenience scripts that delegate to both workspaces
 ```
@@ -179,8 +181,9 @@ An independent loop that runs every `POLL_INTERVAL_MS` (default 5 s):
 1. probes both RPCs concurrently (latency ping + `eth_blockNumber`) with `Promise.allSettled`,
 2. validates sync drift against the highest observed block,
 3. reads the gas price from the healthiest node,
-4. persists the sample to Supabase with a headless (service-role, no-session) client, and
-5. posts a Discord alert when a node changes state.
+4. compares the `newHeads` stream against the HTTP probe (see below),
+5. persists the sample to Supabase with a headless (service-role, no-session) client, and
+6. posts a Discord alert when a node changes state.
 
 ```bash
 cd backend
@@ -204,11 +207,54 @@ Secrets (`backend/.env`):
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | insert access — server-side only, never expose it to the browser |
 | `SUPABASE_PULSE_TABLE` | no | defaults to `pulse_samples` |
 | `DISCORD_WEBHOOK_URL` | no | transition alerts; omitting it disables alerting |
+| `WSS_ENABLED` | no | `false` turns the `newHeads` stream off entirely (default `true`) |
+| `WSS_RPC_URL` | no | stream endpoint; defaults to `wss://rpc.electroneum.com` |
 | `POLL_INTERVAL_MS`, `DRIFT_THRESHOLD`, `LATENCY_THRESHOLD_MS`, `RPC_REQUEST_TIMEOUT_MS` | no | tuning overrides |
 | `PORT` | no | HTTP port; injected by the host, defaults to `10000` |
 
 Without Supabase credentials the worker warns once and logs samples to stdout instead of failing to
 start, so it can be run locally with zero configuration.
+
+### WebSocket stream (`newHeads`)
+
+Alongside the HTTP poll, the worker holds one `eth_subscribe`/`newHeads` subscription for the life
+of the process (`backend/src/wss.ts`) and records how much earlier the pushed block arrived than the
+HTTP read of the same height:
+
+```text
+[pulse] #412 block=15925999 gas=1.000000007 Gwei in 216ms | Official 142ms healthy block=15925999 drift=+0 | Ankr 45ms healthy block=15925999 drift=+0
+[wss] block 15925999 - stream 1180ms ahead of the HTTP probe
+```
+
+Both sides are *first sightings of the same height* — the subscription's own record, and the
+earliest probe that reported it — so the difference is a transport comparison rather than a
+block-time one. A gap wider than one poll interval is reported as unmeasurable (`null`) instead of
+quoted: past that distance the number says more about when the chain produced the block than about
+which transport is faster. A negative value means the HTTP read won, which is normal for a cycle or
+two after a reconnect.
+
+The stream is an enhancement, never a dependency:
+
+- it is started once and shared across cycles, and skipping it (`WSS_ENABLED=false`, `npm run once`)
+  costs only the `wss_latency` column;
+- every failure is contained — a bad URL, a refused socket or a malformed head degrades to
+  `wssLatency: null` and the HTTP cycle is unaffected;
+- viem reconnects a dropped socket and replays the subscription on its own, but its retry budget
+  (5 attempts, 2 s apart) can be spent, after which the subscription dies silently. The loop
+  therefore checks the stream each cycle and re-subscribes after `WSS_STALE_AFTER_MS` (30 s) of
+  silence, which also rate-limits a failed attempt to one per stall window;
+- the 30 s constant is set from ETN's ~5 s block time (six missed blocks) and lives in
+  `backend/src/etn.ts`.
+
+`/health` reports the stream beside the HTTP probes, which is what makes "the stream is down"
+distinguishable from "the network is down":
+
+```json
+{ "wssHeadStartMs": 1180,
+  "wss": { "url": "wss://rpc.electroneum.com", "connected": true, "lastBlockNumber": 15925999,
+           "lastBlockAt": "2026-09-22T16:45:53.371Z", "blocksSeen": 8640, "restarts": 0,
+           "lastError": null } }
+```
 
 ### Running as a web service (Render, Koyeb and friends)
 
@@ -221,7 +267,7 @@ routing, so a second instance would buy nothing.
 | Route | Response |
 | --- | --- |
 | `GET /` | `200 {"status":"ETN Pulse Backend Active"}` — the liveness payload |
-| `GET /health` | `200` plus uptime, cycle count, last cycle duration/error, tip block, gas price and the last probe per endpoint |
+| `GET /health` | `200` plus uptime, cycle count, last cycle duration/error, tip block, gas price, the last probe per endpoint and the `newHeads` stream state |
 | anything else | `404`; non-`GET`/`HEAD` returns `405` |
 
 `HEAD` is supported on both routes. On `SIGTERM` the loop stops after the cycle in flight and the
@@ -281,6 +327,12 @@ security rather than silently bypassing it:
 RPC ids are discovered from the JSONB keys, so a third endpoint appears in both views automatically.
 Buckets are UTC; changing the timezone in the SQL also means updating the `timezone` field the
 analytics route reports.
+
+Run `supabase/04_wss_latency.sql` last. It adds one nullable column, `wss_latency`, holding the
+stream's head start in milliseconds for that sample (`httpObservedAt - wssObservedAt` for the same
+height). It is `NULL` whenever the comparison is not available: the stream is disabled or down, the
+HTTP nodes never reported the height the stream saw, or the two sightings are more than one poll
+interval apart.
 
 Run `supabase/03_latency_series.sql` after the views. It adds
 `pulse_latency_series(range_key text default '24h')`, the downsampling function behind

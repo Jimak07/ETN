@@ -33,6 +33,7 @@ interface PulseRow {
   latencies: Record<string, number | null>;
   statuses: Record<string, RpcStatus>;
   drifts: Record<string, number | null>;
+  wss_latency: number | null;
 }
 
 export function toRow(sample: PulseSample): PulseRow {
@@ -43,6 +44,7 @@ export function toRow(sample: PulseSample): PulseRow {
     latencies: sample.latencies,
     statuses: sample.statuses,
     drifts: sample.drifts,
+    wss_latency: sample.wssLatency,
   };
 }
 
@@ -76,6 +78,7 @@ export function fromRow(row: Record<string, unknown>): PulseSample {
     latencies: toRecord<number | null>(row.latencies),
     statuses: toRecord<RpcStatus>(row.statuses),
     drifts: toRecord<number | null>(row.drifts),
+    wssLatency: toNumber(row.wss_latency),
   };
 }
 
@@ -106,7 +109,7 @@ export async function fetchRecentSamples(
 ): Promise<PulseSample[]> {
   const { data, error } = await client
     .from(table)
-    .select("t,highest_network_block,gas_price_gwei,latencies,statuses,drifts")
+    .select("t,highest_network_block,gas_price_gwei,latencies,statuses,drifts,wss_latency")
     .order("t", { ascending: false })
     .limit(limit);
 

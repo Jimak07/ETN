@@ -54,7 +54,8 @@ async function main(): Promise<void> {
   console.log(
     `[pulse] interval=${config.intervalMs}ms driftThreshold=${config.driftThreshold} ` +
       `supabase=${config.supabase ? config.supabase.table : "disabled"} ` +
-      `discord=${config.discordWebhookUrl ? "enabled" : "disabled"}`,
+      `discord=${config.discordWebhookUrl ? "enabled" : "disabled"} ` +
+      `wss=${config.wssUrl ?? "disabled"}`,
   );
 
   const controller = new AbortController();

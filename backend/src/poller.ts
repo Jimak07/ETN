@@ -2,9 +2,10 @@ import type { WorkerConfig } from "./config.js";
 import { applyDriftDetection, findHighestNetworkBlock } from "./drift.js";
 import { ETN_CHAIN_ID, MONITORED_RPCS } from "./etn.js";
 import { detectTransitions, sendDiscordAlerts } from "./notify.js";
-import { describeError, pickFastest, probeAllRpcs, readChainStats } from "./rpc.js";
+import { describeError, httpObservedAt, pickFastest, probeAllRpcs, readChainStats } from "./rpc.js";
 import { insertSample, type HeadlessClient } from "./supabase.js";
 import type { PulseSample, RpcProbe } from "./types.js";
+import { startWssMonitor, streamHeadStartMs, type WssMonitor, type WssMonitorState } from "./wss.js";
 
 /**
  * ETN Pulse polling loop.
@@ -44,6 +45,18 @@ function formatProbe(rpc: RpcProbe): string {
   return `${rpc.name} ${latency} ${rpc.status} block=${block} drift=${drift}${note}`;
 }
 
+/**
+ * One-line stream-vs-poll comparison, or null when this cycle could not measure
+ * it. Logged with the cycle summary so a regression on the stream shows up next
+ * to the HTTP numbers it is being compared against.
+ */
+function formatHeadStart(wssLatency: number | null, blockNumber: number | null): string | null {
+  if (wssLatency === null || blockNumber === null) return null;
+
+  const direction = wssLatency >= 0 ? "ahead of" : "behind";
+  return `[wss] block ${blockNumber} - stream ${Math.abs(wssLatency)}ms ${direction} the HTTP probe`;
+}
+
 /** Sleeps, but wakes immediately when the worker is asked to shut down. */
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -68,6 +81,7 @@ async function runCycle(
   config: WorkerConfig,
   client: HeadlessClient | null,
   previous: ReadonlyMap<string, RpcProbe>,
+  wss: WssMonitor | null,
 ): Promise<CycleResult> {
   const startedAt = performance.now();
 
@@ -91,6 +105,16 @@ async function runCycle(
   const fastestRpc = fastest ? (MONITORED_RPCS.find((rpc) => rpc.id === fastest.id) ?? null) : null;
   const stats = await readChainStats(fastestRpc, config.requestTimeoutMs);
 
+  // 4. Stream vs poll. Both sides are first sightings of the same height: the
+  //    earliest HTTP probe that reported it, and the subscription's own record.
+  //    Null whenever either side never saw it, so the column never invents a
+  //    comparison it cannot support.
+  const wssLatency = streamHeadStartMs(
+    highestNetworkBlock === null ? null : (wss?.firstSeenAt(highestNetworkBlock) ?? null),
+    httpObservedAt(rpcs, highestNetworkBlock),
+    config.intervalMs,
+  );
+
   const sample: PulseSample = {
     t: Date.now(),
     highestNetworkBlock,
@@ -98,9 +122,10 @@ async function runCycle(
     latencies: Object.fromEntries(rpcs.map((rpc) => [rpc.id, rpc.latencyMs])),
     statuses: Object.fromEntries(rpcs.map((rpc) => [rpc.id, rpc.status])),
     drifts: Object.fromEntries(rpcs.map((rpc) => [rpc.id, rpc.drift])),
+    wssLatency,
   };
 
-  // 4. Persist. A database outage must not stop monitoring, so failures are
+  // 5. Persist. A database outage must not stop monitoring, so failures are
   //    reported and the loop carries on with the next cycle.
   if (client && config.supabase) {
     try {
@@ -110,7 +135,7 @@ async function runCycle(
     }
   }
 
-  // 5. Alert on state transitions only.
+  // 6. Alert on state transitions only.
   const events = detectTransitions(previous, rpcs, config.driftThreshold);
   for (const event of events) {
     console.log(`[alert] ${event.level.toUpperCase()} ${event.title} — ${event.detail}`);
@@ -128,6 +153,9 @@ async function runCycle(
     `[pulse] #${cycle} block=${highestNetworkBlock ?? "—"} gas=${stats.gasPriceGwei ?? "—"} Gwei ` +
       `in ${durationMs}ms | ${rpcs.map(formatProbe).join(" | ")}`,
   );
+  const headStart = formatHeadStart(wssLatency, highestNetworkBlock);
+  if (headStart !== null) console.log(headStart);
+
   if (outOfSyncRpcIds.length > 0) {
     console.warn(`[pulse] out of sync: ${outOfSyncRpcIds.join(", ")}`);
   }
@@ -157,6 +185,10 @@ export interface WorkerStatus {
   outOfSyncRpcIds: string[];
   /** Last probe result per endpoint, surfaced by `/health`. */
   rpcs: RpcProbe[];
+  /** Head start of the WSS stream over the HTTP probe for the last cycle, ms. */
+  wssHeadStartMs: number | null;
+  /** `newHeads` stream health; null when the stream is switched off. */
+  wss: WssMonitorState | null;
   pollIntervalMs: number;
   chainId: number;
 }
@@ -172,6 +204,8 @@ export function createWorkerStatus(config: WorkerConfig): WorkerStatus {
     gasPriceGwei: null,
     outOfSyncRpcIds: [],
     rpcs: [],
+    wssHeadStartMs: null,
+    wss: null,
     pollIntervalMs: config.intervalMs,
     chainId: ETN_CHAIN_ID,
   };
@@ -203,30 +237,51 @@ export async function runWorker({
   let cycle = 0;
   let previous = new Map<string, RpcProbe>();
 
-  while (!signal.aborted) {
-    cycle += 1;
-    try {
-      const result = await runCycle(cycle, config, client, previous);
-      previous = new Map(result.rpcs.map((rpc) => [rpc.id, rpc]));
+  // One subscription for the life of the process: a WebSocket stream is
+  // long-lived, not something to re-establish every five seconds. A single
+  // cycle is the exception - it cannot observe a head, so the stream would only
+  // add a socket and a shutdown wait to a smoke test.
+  const wss = config.wssUrl === null || config.runOnce ? null : startWssMonitor(config.wssUrl);
+  status.wss = wss?.state() ?? null;
 
-      status.cycles = cycle;
-      status.lastCycleAt = Date.now();
-      status.lastCycleDurationMs = result.durationMs;
-      status.lastCycleError = null;
-      status.highestNetworkBlock = result.highestNetworkBlock;
-      status.gasPriceGwei = result.sample.gasPriceGwei;
-      status.outOfSyncRpcIds = result.outOfSyncRpcIds;
-      status.rpcs = result.rpcs;
-    } catch (error) {
-      const detail = describeError(error);
-      status.cycles = cycle;
-      status.lastCycleAt = Date.now();
-      status.lastCycleError = detail;
-      console.error(`[pulse] cycle #${cycle} failed: ${detail}`);
+  try {
+    while (!signal.aborted) {
+      cycle += 1;
+
+      // Recovering from inside the loop, rather than on a timer, ties the
+      // watchdog to the thing it protects: if cycles stop, a silent stream is
+      // the least of the worker's problems.
+      wss?.ensureFresh();
+
+      try {
+        const result = await runCycle(cycle, config, client, previous, wss);
+        previous = new Map(result.rpcs.map((rpc) => [rpc.id, rpc]));
+
+        status.cycles = cycle;
+        status.lastCycleAt = Date.now();
+        status.lastCycleDurationMs = result.durationMs;
+        status.lastCycleError = null;
+        status.highestNetworkBlock = result.highestNetworkBlock;
+        status.gasPriceGwei = result.sample.gasPriceGwei;
+        status.outOfSyncRpcIds = result.outOfSyncRpcIds;
+        status.rpcs = result.rpcs;
+        status.wssHeadStartMs = result.sample.wssLatency;
+      } catch (error) {
+        const detail = describeError(error);
+        status.cycles = cycle;
+        status.lastCycleAt = Date.now();
+        status.lastCycleError = detail;
+        console.error(`[pulse] cycle #${cycle} failed: ${detail}`);
+      }
+
+      // A fresh snapshot per cycle, so `/health` never serves a torn read.
+      status.wss = wss?.state() ?? null;
+
+      if (config.runOnce || signal.aborted) break;
+      await delay(config.intervalMs, signal);
     }
-
-    if (config.runOnce || signal.aborted) break;
-    await delay(config.intervalMs, signal);
+  } finally {
+    await wss?.stop();
   }
 
   console.log(`[pulse] worker stopped after ${cycle} cycle(s).`);

@@ -78,6 +78,24 @@ function renderHealth(status: WorkerStatus) {
     highestNetworkBlock: status.highestNetworkBlock,
     gasPriceGwei: status.gasPriceGwei,
     outOfSyncRpcIds: status.outOfSyncRpcIds,
+    // Stream health sits beside the HTTP probes so a caller can tell "the
+    // stream is down" from "the network is down" without reading the logs.
+    wssHeadStartMs: status.wssHeadStartMs,
+    wss:
+      status.wss === null
+        ? null
+        : {
+            url: status.wss.url,
+            connected: status.wss.connected,
+            lastBlockNumber: status.wss.lastBlockNumber,
+            lastBlockAt:
+              status.wss.lastBlockAt === null
+                ? null
+                : new Date(status.wss.lastBlockAt).toISOString(),
+            blocksSeen: status.wss.blocksSeen,
+            restarts: status.wss.restarts,
+            lastError: status.wss.lastError,
+          },
     rpcs: status.rpcs.map((rpc) => ({
       id: rpc.id,
       name: rpc.name,

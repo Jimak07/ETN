@@ -27,6 +27,12 @@ export interface RpcProbe {
   latencyMs: number | null;
   /** Latest block reported by this node; null when it could not be read. */
   blockNumber: number | null;
+  /**
+   * Epoch ms when that block-number read landed. Comparing the earliest of
+   * these against the WSS stream's own first sighting of the same height is
+   * what produces `wssLatency`; null when the read failed.
+   */
+  blockObservedAt: number | null;
   /** highestNetworkBlock - blockNumber; null while offline. */
   drift: number | null;
   status: RpcStatus;
@@ -50,4 +56,10 @@ export interface PulseSample {
   statuses: Record<string, RpcStatus>;
   /** rpc id -> drift in blocks. */
   drifts: Record<string, number | null>;
+  /**
+   * WebSocket head start in ms: how much earlier the `newHeads` stream saw the
+   * tip than the HTTP probe did. Null when the stream is disabled, down, or the
+   * two sightings are further apart than one poll interval (see wss.ts).
+   */
+  wssLatency: number | null;
 }
