@@ -1,13 +1,13 @@
-import { loadConfig, type WorkerConfig } from "./config.js";
+import type { WorkerConfig } from "./config.js";
 import { applyDriftDetection, findHighestNetworkBlock } from "./drift.js";
 import { ETN_CHAIN_ID, MONITORED_RPCS } from "./etn.js";
 import { detectTransitions, sendDiscordAlerts } from "./notify.js";
 import { describeError, pickFastest, probeAllRpcs, readChainStats } from "./rpc.js";
-import { createHeadlessClient, insertSample, type HeadlessClient } from "./supabase.js";
+import { insertSample, type HeadlessClient } from "./supabase.js";
 import type { PulseSample, RpcProbe } from "./types.js";
 
 /**
- * ETN Pulse backend worker.
+ * ETN Pulse polling loop.
  *
  * An independent loop that polls the Electroneum Smart Chain RPCs every
  * POLL_INTERVAL_MS, measures endpoint latency and block drift, persists each
@@ -18,10 +18,13 @@ import type { PulseSample, RpcProbe } from "./types.js";
  * history even while the dashboard is down or being redeployed, and the two can
  * be scaled, deployed and restarted independently.
  *
+ * This module owns the loop; `src/index.ts` is the entry point and pairs it
+ * with the HTTP server the hosting platform health-checks.
+ *
  * Usage:
  *   npm run dev     # tsx watch, reloads on change
  *   npm run build   # tsc -> dist/
- *   npm start       # node dist/poller.js
+ *   npm start       # node dist/index.js
  *   npm run once    # a single cycle, then exit (cron / smoke test)
  */
 
@@ -132,54 +135,100 @@ async function runCycle(
   return { rpcs, sample, highestNetworkBlock, outOfSyncRpcIds, durationMs };
 }
 
-async function main(): Promise<void> {
-  const config = loadConfig();
-  const client = config.supabase ? createHeadlessClient(config.supabase) : null;
+/**
+ * Live worker state.
+ *
+ * Mutated in place by `runWorker` and read on every request by the HTTP server.
+ * It is a plain object on purpose: the loop is the only writer and the server
+ * only reads, so neither needs a reference to the other.
+ */
+export interface WorkerStatus {
+  /** Epoch ms when this process started. */
+  startedAt: number;
+  /** Cycles attempted, including the ones that threw. */
+  cycles: number;
+  /** Epoch ms of the last cycle to settle, successful or not. */
+  lastCycleAt: number | null;
+  lastCycleDurationMs: number | null;
+  /** Message from the last failed cycle; cleared once a cycle succeeds. */
+  lastCycleError: string | null;
+  highestNetworkBlock: number | null;
+  gasPriceGwei: string | null;
+  outOfSyncRpcIds: string[];
+  /** Last probe result per endpoint, surfaced by `/health`. */
+  rpcs: RpcProbe[];
+  pollIntervalMs: number;
+  chainId: number;
+}
 
-  console.log(`[pulse] ETN Pulse worker — chain ${ETN_CHAIN_ID}`);
-  console.log(
-    `[pulse] endpoints: ${MONITORED_RPCS.map((rpc) => `${rpc.name} (${rpc.url})`).join(", ")}`,
-  );
-  console.log(
-    `[pulse] interval=${config.intervalMs}ms driftThreshold=${config.driftThreshold} ` +
-      `supabase=${config.supabase ? config.supabase.table : "disabled"} ` +
-      `discord=${config.discordWebhookUrl ? "enabled" : "disabled"}`,
-  );
-
-  const controller = new AbortController();
-  const shutdown = (signal: string) => {
-    if (controller.signal.aborted) return;
-    console.log(`[pulse] ${signal} received — finishing the current cycle, then exiting.`);
-    controller.abort();
+export function createWorkerStatus(config: WorkerConfig): WorkerStatus {
+  return {
+    startedAt: Date.now(),
+    cycles: 0,
+    lastCycleAt: null,
+    lastCycleDurationMs: null,
+    lastCycleError: null,
+    highestNetworkBlock: null,
+    gasPriceGwei: null,
+    outOfSyncRpcIds: [],
+    rpcs: [],
+    pollIntervalMs: config.intervalMs,
+    chainId: ETN_CHAIN_ID,
   };
+}
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("unhandledRejection", (reason) => {
-    console.error(`[pulse] unhandled rejection: ${describeError(reason)}`);
-  });
+export interface WorkerRunOptions {
+  config: WorkerConfig;
+  /** null when Supabase is not configured; samples are then logged only. */
+  client: HeadlessClient | null;
+  /** Mutated in place so the HTTP server can report progress. */
+  status: WorkerStatus;
+  /** Aborting stops the loop after the cycle already in flight. */
+  signal: AbortSignal;
+}
 
+/**
+ * Run the polling loop until `signal` is aborted.
+ *
+ * A failed cycle is a data point, not a crash: it is recorded on `status`,
+ * logged, and the loop waits for the next interval. The returned promise
+ * resolves once the loop exits, so the entry point can await a clean shutdown.
+ */
+export async function runWorker({
+  config,
+  client,
+  status,
+  signal,
+}: WorkerRunOptions): Promise<number> {
   let cycle = 0;
   let previous = new Map<string, RpcProbe>();
 
-  while (!controller.signal.aborted) {
+  while (!signal.aborted) {
     cycle += 1;
     try {
       const result = await runCycle(cycle, config, client, previous);
       previous = new Map(result.rpcs.map((rpc) => [rpc.id, rpc]));
+
+      status.cycles = cycle;
+      status.lastCycleAt = Date.now();
+      status.lastCycleDurationMs = result.durationMs;
+      status.lastCycleError = null;
+      status.highestNetworkBlock = result.highestNetworkBlock;
+      status.gasPriceGwei = result.sample.gasPriceGwei;
+      status.outOfSyncRpcIds = result.outOfSyncRpcIds;
+      status.rpcs = result.rpcs;
     } catch (error) {
-      // A failed cycle is a data point, not a crash: log it and retry.
-      console.error(`[pulse] cycle #${cycle} failed: ${describeError(error)}`);
+      const detail = describeError(error);
+      status.cycles = cycle;
+      status.lastCycleAt = Date.now();
+      status.lastCycleError = detail;
+      console.error(`[pulse] cycle #${cycle} failed: ${detail}`);
     }
 
-    if (config.runOnce || controller.signal.aborted) break;
-    await delay(config.intervalMs, controller.signal);
+    if (config.runOnce || signal.aborted) break;
+    await delay(config.intervalMs, signal);
   }
 
   console.log(`[pulse] worker stopped after ${cycle} cycle(s).`);
+  return cycle;
 }
-
-main().catch((error: unknown) => {
-  console.error(`[pulse] fatal: ${describeError(error)}`);
-  process.exitCode = 1;
-});

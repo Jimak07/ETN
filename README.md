@@ -24,7 +24,9 @@ frontend/                 Next.js dashboard
   next.config.mjs  postcss.config.mjs  tailwind.config.ts  tsconfig.json
   .env.example            optional Supabase read credentials
 backend/                  headless monitoring worker
-  src/poller.ts           entry point: the polling loop
+  src/index.ts            entry point: HTTP server + polling loop
+  src/server.ts           node:http web service (/, /health)
+  src/poller.ts           the polling loop itself
   src/rpc.ts              viem clients, latency ping, block reads
   src/drift.ts            pure drift/synchronisation validation
   src/supabase.ts         headless Supabase client + row mapping
@@ -182,7 +184,8 @@ An independent loop that runs every `POLL_INTERVAL_MS` (default 5 s):
 ```bash
 cd backend
 cp .env.example .env      # fill in Supabase credentials
-npm run dev               # or: npm run build && npm start
+npm run dev               # dev server + loop (tsx watch)
+npm run build && npm start # production: node dist/index.js
 npm run once              # one cycle, then exit
 ```
 
@@ -201,9 +204,31 @@ Secrets (`backend/.env`):
 | `SUPABASE_PULSE_TABLE` | no | defaults to `pulse_samples` |
 | `DISCORD_WEBHOOK_URL` | no | transition alerts; omitting it disables alerting |
 | `POLL_INTERVAL_MS`, `DRIFT_THRESHOLD`, `LATENCY_THRESHOLD_MS`, `RPC_REQUEST_TIMEOUT_MS` | no | tuning overrides |
+| `PORT` | no | HTTP port; injected by the host, defaults to `10000` |
 
 Without Supabase credentials the worker warns once and logs samples to stdout instead of failing to
 start, so it can be run locally with zero configuration.
+
+### Running as a web service (Koyeb and friends)
+
+The worker also serves HTTP, because PaaS platforms deploy a *web* service and health-check the
+port they inject. `src/index.ts` binds `process.env.PORT ?? 10000` on `0.0.0.0` **before** starting
+the loop, so a health check arriving during the first (slow, cold) RPC cycle cannot fail a healthy
+deploy. The two run in the same process: the loop is I/O bound and the server is a few kilobytes of
+routing, so a second instance would buy nothing.
+
+| Route | Response |
+| --- | --- |
+| `GET /` | `200 {"status":"ETN Pulse Backend Active"}` — the liveness payload |
+| `GET /health` | `200` plus uptime, cycle count, last cycle duration/error, tip block, gas price and the last probe per endpoint |
+| anything else | `404`; non-`GET`/`HEAD` returns `405` |
+
+`HEAD` is supported on both routes. On `SIGTERM` the loop stops after the cycle in flight and the
+server stops accepting connections, so a platform redeploy does not leave a half-serving process.
+
+Deploy settings: **build** `npm run build`, **run** `npm start`, health check `GET /`. No port or
+host configuration is needed — `PORT` comes from the platform, and `.env` values are set as service
+secrets/environment variables.
 
 Alerts fire on **transitions only** — a node going offline, starting to drift, answering slowly, or
 recovering — so a prolonged outage does not page every 5 seconds. A failed cycle is logged and
