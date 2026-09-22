@@ -36,6 +36,7 @@ backend/                  headless monitoring worker
 supabase/schema.sql       database migration (run first)
 supabase/02_analytics_views.sql  analytics views (run after schema.sql)
 supabase/03_latency_series.sql   latency chart buckets (run after the views)
+render.yaml               Render Blueprint: the backend as a free-tier web service
 package.json              convenience scripts that delegate to both workspaces
 ```
 
@@ -209,7 +210,7 @@ Secrets (`backend/.env`):
 Without Supabase credentials the worker warns once and logs samples to stdout instead of failing to
 start, so it can be run locally with zero configuration.
 
-### Running as a web service (Koyeb and friends)
+### Running as a web service (Render, Koyeb and friends)
 
 The worker also serves HTTP, because PaaS platforms deploy a *web* service and health-check the
 port they inject. `src/index.ts` binds `process.env.PORT ?? 10000` on `0.0.0.0` **before** starting
@@ -226,9 +227,29 @@ routing, so a second instance would buy nothing.
 `HEAD` is supported on both routes. On `SIGTERM` the loop stops after the cycle in flight and the
 server stops accepting connections, so a platform redeploy does not leave a half-serving process.
 
-Deploy settings: **build** `npm run build`, **run** `npm start`, health check `GET /`. No port or
-host configuration is needed — `PORT` comes from the platform, and `.env` values are set as service
-secrets/environment variables.
+No port or host configuration is needed — `PORT` comes from the platform, and `.env` values are set
+as service secrets/environment variables.
+
+#### Render
+
+`render.yaml` at the repository root is a Blueprint for the free instance type: connect the repo and
+Render creates the service, with the secrets prompted for on the first deploy. Equivalently, by hand:
+
+| Setting | Value |
+| --- | --- |
+| Service type | Web Service (a *background worker* is not available on the free instance type) |
+| Root Directory | `backend` — without it Render builds the repo root, which only delegates to the workspaces |
+| Build Command | `npm ci && npm run build` |
+| Start Command | `npm start` |
+| Health Check Path | `/health` (`/` also works) |
+| Environment | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optionally `DISCORD_WEBHOOK_URL` |
+
+**Free-tier caveat:** Render spins a free web service down after a period without inbound traffic
+(around 15 minutes) and wakes it on the next request, so the 5 s loop pauses while it sleeps and the
+Supabase history has gaps for those windows. Nothing is lost on the restart — every sample already
+written is in Postgres — and the usual mitigation is an external uptime check pointed at `/health`
+every 5-10 minutes to keep the instance awake. The startup log prints the public URL
+(`RENDER_EXTERNAL_URL`, injected by Render) as the address to point that check at.
 
 Alerts fire on **transitions only** — a node going offline, starting to drift, answering slowly, or
 recovering — so a prolonged outage does not page every 5 seconds. A failed cycle is logged and

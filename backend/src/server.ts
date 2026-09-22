@@ -3,16 +3,17 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { WorkerStatus } from "./poller.js";
 
 /**
- * Koyeb (like most PaaS) runs this worker as a *web* service, so the process
- * must expose an HTTP port even though its real job is the polling loop in
- * `poller.ts`. The server is deliberately small: `node:http` only, no framework,
- * and the only shared state is a read-only view of the worker's status.
+ * Render and Koyeb (like most PaaS) run this worker as a *web* service, so the
+ * process must expose an HTTP port even though its real job is the polling loop
+ * in `poller.ts`. The server is deliberately small: `node:http` only, no
+ * framework, and the only shared state is a read-only view of the worker's
+ * status.
  *
  *   GET /        liveness  -> the exact payload the platform health check wants
  *   GET /health  readiness -> the same, plus the worker's counters
  */
 
-/** Koyeb injects PORT at runtime; 10000 matches its own default. */
+/** Render and Koyeb inject PORT at runtime; 10000 matches their default. */
 export const DEFAULT_PORT = 10000;
 
 /**

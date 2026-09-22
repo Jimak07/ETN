@@ -10,12 +10,12 @@ import { createHeadlessClient } from "./supabase.js";
 /**
  * ETN Pulse backend entry point.
  *
- * Koyeb runs this worker as a *web* service, so the process has to do two
- * things at once: serve HTTP on the injected port so the platform's health
- * check passes, and keep the 5s RPC polling loop running for as long as the
- * process lives. Both live in the same process — the loop is I/O bound and the
- * server is a couple of kilobytes of routing, so a second dyno would buy
- * nothing.
+ * Render (and Koyeb, and most PaaS) runs this worker as a *web* service, so the
+ * process has to do two things at once: serve HTTP on the injected port so the
+ * platform's health check passes, and keep the 5s RPC polling loop running for
+ * as long as the process lives. Both live in the same process — the loop is I/O
+ * bound and the server is a couple of kilobytes of routing, so a second dyno
+ * would buy nothing.
  *
  * The server comes up first on purpose. A first cycle can take a few seconds
  * (a cold viem round trip to both endpoints plus the block/gas read), and a
@@ -27,8 +27,8 @@ import { createHeadlessClient } from "./supabase.js";
  */
 
 /**
- * Koyeb assigns PORT dynamically and expects the app to honour it. The fallback
- * keeps local runs working without any configuration.
+ * Render and Koyeb assign PORT dynamically and expect the app to honour it. The
+ * fallback keeps local runs working without any configuration.
  */
 function readPort(): number {
   const raw = process.env.PORT?.trim();
@@ -86,6 +86,16 @@ async function main(): Promise<void> {
     const port = readPort();
     server = await startHealthServer({ port, status });
     console.log(`[pulse] web service listening on 0.0.0.0:${port} — health: GET / or GET /health`);
+
+    // Render injects the service's public URL. Logging it keeps the deployed
+    // address discoverable, and it is the URL an external uptime check should
+    // target to stop the free instance type from idling out.
+    const publicUrl = process.env.RENDER_EXTERNAL_URL?.trim();
+    if (publicUrl) {
+      console.log(
+        `[pulse] public URL: ${publicUrl} — point a keep-alive check at ${publicUrl}/health`,
+      );
+    }
   }
 
   await runWorker({ config, client, status, signal: controller.signal });

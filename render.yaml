@@ -1,0 +1,37 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# The monitoring worker is deployed as a *web* service rather than a background
+# worker, because that is the only service type Render offers on the free
+# instance type. It already serves the HTTP routes Render needs for its health
+# check (see backend/src/server.ts), so nothing about the worker changes.
+#
+# `rootDir` is what makes the monorepo work: without it Render would build the
+# repository root, whose package.json only delegates to the two workspaces.
+
+services:
+  - type: web
+    name: etn-pulse-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    # The lockfile is in sync with package.json, so `npm ci` is deterministic.
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    # Proves the process is up *and* reports the loop's progress in the payload.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Set these in the Render dashboard (or here with `sync: false`, which
+      # prompts for them on first deploy rather than storing them in git).
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      # Non-secret defaults mirrored from backend/.env.example.
+      - key: SUPABASE_PULSE_TABLE
+        value: pulse_samples
+      - key: POLL_INTERVAL_MS
+        value: "5000"
+      # PORT is injected by Render — never set it here.
