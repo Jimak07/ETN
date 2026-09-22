@@ -12,11 +12,17 @@ import { RpcLeaderboard } from "@/components/rpc-leaderboard";
 import { UptimeMetric } from "@/components/uptime-metric";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { usePulse } from "@/hooks/use-pulse";
-import type { GasExtreme, GasHeatmapCell, RpcUptime } from "@/lib/analytics";
+import {
+  DEFAULT_HISTORY_RANGE,
+  type AnalyticsFailures,
+  type GasExtreme,
+  type GasHeatmapCell,
+  type HistoryRange,
+  type RpcUptime,
+} from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { resolveEndpointReading } from "@/lib/endpoint-selection";
 import { DRIFT_THRESHOLD, ETN_EXPLORER_URL, type SelectedEndpoint } from "@/lib/etn";
-import { buildLatencySeries } from "@/lib/pulse-client";
 import type { PulseConnection } from "@/lib/types";
 
 /**
@@ -121,24 +127,30 @@ export default function Page() {
     refresh,
   } = usePulse();
 
-  // Aggregate history: a 24h uptime window and a day/hour gas profile. Polled
-  // far more lazily than the live pulse, and independent of it — a missing
-  // Supabase view degrades these two cards alone.
-  const analytics = useAnalytics();
-
   const [selectedEndpoint, setSelectedEndpoint] = useState<SelectedEndpoint>("fastest");
+  // Chart window, held here because the leaderboard's endpoint choice and the
+  // chart's timeframe toolbar are two views of the same state.
+  const [range, setRange] = useState<HistoryRange>(DEFAULT_HISTORY_RANGE);
+
+  // Aggregate history: a 24h uptime window, a day/hour gas profile and the
+  // downsampled latency series for the active window. Polled far more lazily
+  // than the live pulse, and independent of it — a missing Supabase view
+  // degrades those cards alone.
+  const analytics = useAnalytics(range);
 
   // A single resolver feeds the KPI card, the leaderboard highlight and the
-  // chart, so they can never disagree about which endpoint is being displayed.
+  // chart header, so they can never disagree about which endpoint is displayed.
   const reading = useMemo(
     () => resolveEndpointReading(snapshot?.rpcs ?? [], selectedEndpoint),
     [snapshot, selectedEndpoint],
   );
   const activeRpc = reading.rpc;
-  const series = useMemo(
-    () => buildLatencySeries(history, activeRpc?.id ?? null),
-    [history, activeRpc],
-  );
+
+  // A payload names the query that failed; before the first payload the only
+  // thing worth reporting is the transport error itself. Without this each
+  // card would blame itself for a neighbour's outage.
+  const failure = (target: keyof AnalyticsFailures) =>
+    analytics.data ? analytics.data.failures[target] : analytics.error;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
@@ -179,19 +191,29 @@ export default function Page() {
               uptime={analytics.data?.uptime ?? NO_UPTIME}
               loading={analytics.isLoading}
               configured={analytics.data?.configured ?? null}
-              error={analytics.error}
+              error={failure("uptime")}
             />
           </div>
         </div>
 
-        <LatencySparkline series={series} rpc={activeRpc} loading={isLoading} />
+        <LatencySparkline
+          selectedEndpoint={selectedEndpoint}
+          history={analytics.data?.latencyHistory ?? null}
+          range={range}
+          onRangeChange={setRange}
+          rpc={activeRpc}
+          loading={analytics.isLoading}
+          fetching={analytics.isFetching}
+          switchingRange={analytics.isSwitchingRange}
+          error={failure("latencyHistory")}
+        />
 
         <GasHeatmap
           cells={analytics.data?.gasHeatmap ?? NO_HEATMAP}
           extremes={analytics.data?.extremes ?? NO_EXTREMES}
           loading={analytics.isLoading}
           configured={analytics.data?.configured ?? null}
-          error={analytics.error}
+          error={failure("gasHeatmap")}
         />
 
         <ModuleHub />

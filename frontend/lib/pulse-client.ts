@@ -1,5 +1,5 @@
 import { HISTORY_LIMIT } from "./etn";
-import type { PulseHistoryPoint, PulseSnapshot, RpcStatus } from "./types";
+import type { PulseHistoryPoint, PulseSnapshot } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -93,34 +93,6 @@ export async function fetchPulse(
   }
 }
 
-export interface LatencySeriesPoint {
-  t: number;
-  /** HH:MM:SS label for the chart tooltip. */
-  label: string;
-  latencyMs: number | null;
-  status: RpcStatus | null;
-}
-
-/** Project the history window onto a single RPC for the sparkline. */
-export function buildLatencySeries(
-  history: PulseHistoryPoint[],
-  rpcId: string | null,
-): LatencySeriesPoint[] {
-  if (!rpcId) return [];
-
-  return history.map((point) => ({
-    t: point.t,
-    label: new Date(point.t).toLocaleTimeString("en-US", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }),
-    latencyMs: point.latencies[rpcId] ?? null,
-    status: point.statuses[rpcId] ?? null,
-  }));
-}
-
 /** Merge server history with locally polled samples, oldest first. */
 export function mergeHistorySeries(
   previous: PulseHistoryPoint[],
@@ -131,31 +103,4 @@ export function mergeHistorySeries(
     byTimestamp.set(point.t, point);
   }
   return [...byTimestamp.values()].sort((a, b) => a.t - b.t).slice(-HISTORY_LIMIT);
-}
-
-export interface LatencySummary {
-  latest: number | null;
-  min: number | null;
-  max: number | null;
-  avg: number | null;
-  samples: number;
-}
-
-export function summarizeLatency(series: LatencySeriesPoint[]): LatencySummary {
-  const values = series
-    .map((point) => point.latencyMs)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-
-  if (values.length === 0) {
-    return { latest: null, min: null, max: null, avg: null, samples: 0 };
-  }
-
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return {
-    latest: values[values.length - 1] ?? null,
-    min: Math.min(...values),
-    max: Math.max(...values),
-    avg: total / values.length,
-    samples: values.length,
-  };
 }

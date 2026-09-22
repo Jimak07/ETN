@@ -9,7 +9,7 @@
  * kept in a single hook.
  */
 
-import { MONITORED_RPCS } from "./etn";
+import { MONITORED_RPCS, getMonitoredRpc, type SelectedEndpoint } from "./etn";
 import { parseDecimalString } from "./format";
 
 /* -------------------------------------------------------------------------- *
@@ -27,6 +27,38 @@ export const ANALYTICS_CLIENT_TIMEOUT_MS = 8000;
 
 /** Uptime at or above this reads as healthy (green); below it reads as amber. */
 export const UPTIME_HEALTHY_PCT = 99;
+
+/* -------------------------------------------------------------------------- *
+ * History ranges
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Windows the latency chart can request.
+ *
+ * The server picks the bucket width per range (see
+ * `supabase/03_latency_series.sql`), so a 30d view returns ~180 aggregated
+ * points instead of ~518k raw 5s samples.
+ */
+export type HistoryRange = "24h" | "7d" | "30d";
+
+export const HISTORY_RANGES: readonly HistoryRange[] = ["24h", "7d", "30d"];
+
+/** Timeframe the chart opens on. */
+export const DEFAULT_HISTORY_RANGE: HistoryRange = "24h";
+
+export function isHistoryRange(value: string): value is HistoryRange {
+  return HISTORY_RANGES.some((range) => range === value);
+}
+
+/** Captions plus the bucket width the Postgres function uses for each range. */
+export const RANGE_META: Record<
+  HistoryRange,
+  { span: string; bucket: string; bucketSeconds: number }
+> = {
+  "24h": { span: "24 hours", bucket: "5-min", bucketSeconds: 300 },
+  "7d": { span: "7 days", bucket: "hourly", bucketSeconds: 3600 },
+  "30d": { span: "30 days", bucket: "4-hour", bucketSeconds: 14400 },
+};
 
 /* -------------------------------------------------------------------------- *
  * Response types (server <-> client contract)
@@ -73,6 +105,52 @@ export interface GasExtreme {
   avgGasPriceGwei: string | null;
 }
 
+/** One (bucket, rpc) aggregate from `pulse_latency_series`. */
+export interface LatencyBucketValue {
+  /** Mean of the successful probes in the bucket; null when every probe failed. */
+  avgMs: number | null;
+  minMs: number | null;
+  maxMs: number | null;
+  /** Every probe in the bucket, including timeouts and offline probes. */
+  samples: number;
+  successfulSamples: number;
+  degradedSamples: number;
+}
+
+/** One time bucket, carrying a value per monitored RPC. */
+export interface LatencyHistoryPoint {
+  /** Bucket start, epoch milliseconds. */
+  t: number;
+  values: Record<string, LatencyBucketValue>;
+}
+
+export interface LatencyHistory {
+  /** The window the server aggregated; may lag the requested one mid-switch. */
+  range: HistoryRange;
+  /** Bucket width the server used, in seconds. */
+  bucketSeconds: number;
+  points: LatencyHistoryPoint[];
+}
+
+/**
+ * Which of the three independent reads failed, and why.
+ *
+ * The route answers 503 with whatever succeeded, so a single shared error
+ * string would make the latency series outage look like a heatmap outage.
+ * Each card reads only its own slot.
+ */
+export interface AnalyticsFailures {
+  uptime: string | null;
+  gasHeatmap: string | null;
+  latencyHistory: string | null;
+}
+
+export const NO_FAILURES: AnalyticsFailures = {
+  uptime: null,
+  gasHeatmap: null,
+  latencyHistory: null,
+};
+
 export interface AnalyticsResponse {
   ok: boolean;
   /** False when the deployment has no Supabase credentials at all. */
@@ -82,8 +160,12 @@ export interface AnalyticsResponse {
   timezone: "UTC";
   uptime: RpcUptime[];
   gasHeatmap: GasHeatmapCell[];
+  /** Downsampled latency series for the chart; null when that query failed. */
+  latencyHistory: LatencyHistory | null;
   /** Cheapest / most expensive average-gas buckets in the heatmap window. */
   extremes: { cheapest: GasExtreme | null; priciest: GasExtreme | null };
+  /** Per-query failure detail, so each card reports only its own. */
+  failures: AnalyticsFailures;
   errors: string[];
 }
 
@@ -107,6 +189,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** PostgREST may serialise numerics as strings, so accept both. */
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 /** A payload is usable when it carries the envelope fields the UI indexes into. */
 function isAnalyticsPayload(value: unknown): value is AnalyticsResponse {
   return (
@@ -118,14 +210,44 @@ function isAnalyticsPayload(value: unknown): value is AnalyticsResponse {
 }
 
 /**
+ * Absent or unrecognisable history degrades to null — the chart then renders an
+ * explanatory empty state — rather than failing the whole payload.
+ */
+function normalizeLatencyHistory(value: unknown): LatencyHistory | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.range !== "string" || !isHistoryRange(value.range)) return null;
+  if (!Array.isArray(value.points)) return null;
+
+  const range = value.range;
+  return {
+    range,
+    bucketSeconds: toNumber(value.bucketSeconds) ?? RANGE_META[range].bucketSeconds,
+    points: value.points as LatencyHistoryPoint[],
+  };
+}
+
+/** Absent per-query detail degrades to "nothing failed" rather than throwing. */
+function normalizeFailures(value: unknown): AnalyticsFailures {
+  if (!isRecord(value)) return NO_FAILURES;
+
+  const read = (key: keyof AnalyticsFailures): string | null =>
+    typeof value[key] === "string" ? (value[key] as string) : null;
+
+  return { uptime: read("uptime"), gasHeatmap: read("gasHeatmap"), latencyHistory: read("latencyHistory") };
+}
+
+/**
  * Fetch the aggregate views from `GET /api/analytics`.
  *
  * Like the pulse client, the request carries its own deadline so a stalled
  * database surfaces as an error in the card instead of an endless spinner.
- * A non-2xx response is reported with the route's own `errors[0]`, which names
- * the missing migration when a view has not been created yet.
+ *
+ * A well-formed envelope is accepted even on a non-2xx status: the route
+ * answers 503 with whatever succeeded when one of its queries fails, and
+ * `ok` / `errors` describe that. Only an unusable body is a hard failure.
  */
 export async function fetchAnalytics(
+  range: HistoryRange,
   signal?: AbortSignal,
   timeoutMs: number = ANALYTICS_CLIENT_TIMEOUT_MS,
 ): Promise<AnalyticsResponse> {
@@ -140,7 +262,7 @@ export async function fetchAnalytics(
   signal?.addEventListener("abort", forwardAbort);
 
   try {
-    const response = await fetch("/api/analytics", {
+    const response = await fetch(`/api/analytics?range=${encodeURIComponent(range)}`, {
       signal: controller.signal,
       cache: "no-store",
       headers: { accept: "application/json" },
@@ -148,19 +270,18 @@ export async function fetchAnalytics(
 
     const payload: unknown = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      const detail =
-        isRecord(payload) && Array.isArray(payload.errors) && typeof payload.errors[0] === "string"
-          ? payload.errors[0]
-          : `Analytics API responded with ${response.status}`;
-      throw new AnalyticsRequestError("http", detail);
-    }
-
     if (!isAnalyticsPayload(payload)) {
-      throw new AnalyticsRequestError("malformed", "Malformed analytics payload received");
+      throw new AnalyticsRequestError(
+        "http",
+        `Analytics API responded with ${response.status}`,
+      );
     }
 
-    return payload;
+    return {
+      ...payload,
+      latencyHistory: normalizeLatencyHistory(payload.latencyHistory),
+      failures: normalizeFailures(payload.failures),
+    };
   } catch (caught) {
     if (caught instanceof AnalyticsRequestError) throw caught;
     if (signal?.aborted) throw new AnalyticsRequestError("aborted", "Analytics request cancelled");
@@ -375,4 +496,205 @@ export function heatmapGradient(steps = 16): string {
     return `${heatmapColor(intensity)} ${(intensity * 100).toFixed(0)}%`;
   });
   return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Latency chart series
+ * -------------------------------------------------------------------------- */
+
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+function utcParts(t: number) {
+  const date = new Date(t);
+  return {
+    month: MONTH_NAMES[date.getUTCMonth()] ?? "",
+    day: String(date.getUTCDate()).padStart(2, "0"),
+    hour: String(date.getUTCHours()).padStart(2, "0"),
+    minute: String(date.getUTCMinutes()).padStart(2, "0"),
+  };
+}
+
+/**
+ * X-axis tick for a bucket start, at the resolution each range deserves:
+ * `HH:mm` over 24h, `MMM DD HH:mm` over 7d, `MMM DD` over 30d.
+ *
+ * Buckets are UTC-aligned (the SQL buckets on the epoch), so labels are UTC
+ * too — matching the gas heatmap on the same page.
+ */
+export function formatBucketAxis(range: HistoryRange, t: number): string {
+  const parts = utcParts(t);
+  if (range === "24h") return `${parts.hour}:${parts.minute}`;
+  if (range === "7d") return `${parts.month} ${parts.day} ${parts.hour}:${parts.minute}`;
+  return `${parts.month} ${parts.day}`;
+}
+
+/** Full bucket timestamp, used as the tooltip heading. */
+export function formatBucketTimestamp(t: number): string {
+  const parts = utcParts(t);
+  return `${parts.month} ${parts.day} ${parts.hour}:${parts.minute} UTC`;
+}
+
+export interface LatencyChartPoint {
+  t: number;
+  /** Pre-formatted X-axis tick. */
+  axis: string;
+  /** Pre-formatted tooltip heading. */
+  timestamp: string;
+  latencyMs: number | null;
+  /** Which node the value came from — only set when the selection is aggregated. */
+  rpcName: string | null;
+  /** True when the bucket held at least one degraded probe. */
+  degraded: boolean;
+  /** Mirrors `latencyMs` on degraded buckets, so it can drive a marker series. */
+  degradedMs: number | null;
+  samples: number;
+  failedSamples: number;
+}
+
+export interface LatencyChartSeries {
+  points: LatencyChartPoint[];
+  /** Newest reading, plus the extremes across buckets. */
+  stats: { current: number | null; min: number | null; avg: number | null; max: number | null };
+  degradedBuckets: number;
+  /** Buckets where nothing answered — drawn as gaps, never as zero. */
+  emptyBuckets: number;
+}
+
+interface BucketReading {
+  latencyMs: number | null;
+  rpcId: string | null;
+  degraded: boolean;
+  samples: number;
+  failedSamples: number;
+}
+
+const NO_BUCKET_READING: BucketReading = {
+  latencyMs: null,
+  rpcId: null,
+  degraded: false,
+  samples: 0,
+  failedSamples: 0,
+};
+
+/** Pick the value to plot for one bucket under the current selection. */
+function resolveBucketReading(
+  point: LatencyHistoryPoint,
+  selected: SelectedEndpoint,
+): BucketReading {
+  if (selected === "fastest") {
+    let winner: { rpcId: string; value: LatencyBucketValue } | null = null;
+
+    for (const [rpcId, value] of Object.entries(point.values)) {
+      if (value.avgMs === null || value.successfulSamples === 0) continue;
+      if (winner === null || value.avgMs < (winner.value.avgMs ?? Number.POSITIVE_INFINITY)) {
+        winner = { rpcId, value };
+      }
+    }
+
+    if (winner === null) return NO_BUCKET_READING;
+    return {
+      latencyMs: winner.value.avgMs,
+      rpcId: winner.rpcId,
+      degraded: winner.value.degradedSamples > 0,
+      samples: winner.value.samples,
+      failedSamples: winner.value.samples - winner.value.successfulSamples,
+    };
+  }
+
+  const value = point.values[selected];
+  if (!value) return { ...NO_BUCKET_READING, rpcId: selected };
+
+  return {
+    latencyMs: value.avgMs,
+    rpcId: selected,
+    degraded: value.degradedSamples > 0,
+    samples: value.samples,
+    failedSamples: value.samples - value.successfulSamples,
+  };
+}
+
+/**
+ * Project the downsampled history onto a single line.
+ *
+ * Exactly one series is produced — the pinned endpoint's own bucket values, or
+ * the lowest bucket average across online nodes for "fastest" — so nothing
+ * overlaps.
+ */
+export function buildLatencySeries(
+  history: LatencyHistory | null,
+  selected: SelectedEndpoint,
+): LatencyChartSeries {
+  if (!history || history.points.length === 0) {
+    return {
+      points: [],
+      stats: { current: null, min: null, avg: null, max: null },
+      degradedBuckets: 0,
+      emptyBuckets: 0,
+    };
+  }
+
+  const { range } = history;
+  const points: LatencyChartPoint[] = [];
+  const values: number[] = [];
+  let degradedBuckets = 0;
+  let emptyBuckets = 0;
+
+  for (const bucket of history.points) {
+    const reading = resolveBucketReading(bucket, selected);
+
+    if (reading.latencyMs === null) emptyBuckets += 1;
+    else values.push(reading.latencyMs);
+    if (reading.degraded) degradedBuckets += 1;
+
+    points.push({
+      t: bucket.t,
+      axis: formatBucketAxis(range, bucket.t),
+      timestamp: formatBucketTimestamp(bucket.t),
+      latencyMs: reading.latencyMs,
+      // Naming the node only matters when the line can change hands.
+      rpcName:
+        selected === "fastest" && reading.rpcId
+          ? (getMonitoredRpc(reading.rpcId)?.displayName ?? reading.rpcId)
+          : null,
+      degraded: reading.degraded,
+      degradedMs: reading.degraded ? reading.latencyMs : null,
+      samples: reading.samples,
+      failedSamples: reading.failedSamples,
+    });
+  }
+
+  // Newest reading, skipping trailing buckets where nothing answered.
+  let current: number | null = null;
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    const value = points[index]?.latencyMs ?? null;
+    if (value !== null) {
+      current = value;
+      break;
+    }
+  }
+
+  const stats =
+    values.length === 0
+      ? { current: null, min: null, avg: null, max: null }
+      : {
+          current,
+          min: Math.min(...values),
+          avg: values.reduce((sum, value) => sum + value, 0) / values.length,
+          max: Math.max(...values),
+        };
+
+  return { points, stats, degradedBuckets, emptyBuckets };
 }

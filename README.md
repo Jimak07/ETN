@@ -33,6 +33,7 @@ backend/                  headless monitoring worker
   .env.example            Supabase + Discord credentials
 supabase/schema.sql       database migration (run first)
 supabase/02_analytics_views.sql  analytics views (run after schema.sql)
+supabase/03_latency_series.sql   latency chart buckets (run after the views)
 package.json              convenience scripts that delegate to both workspaces
 ```
 
@@ -82,7 +83,9 @@ The constants are mirrored in `frontend/lib/etn.ts` and `backend/src/etn.ts` (th
 - **KPI cards** — latest block, current gas fee (Gwei) and fastest RPC latency, with skeleton
   loaders until the first response lands.
 - **RPC leaderboard** — status, latency, block height and drift for each endpoint.
-- **Sparkline** — Recharts latency history for the selected RPC.
+- **Latency history** — Recharts chart bound to the selected endpoint (a single line, never two
+  overlapping ones) with a `24h` / `7d` / `30d` timeframe toolbar, min/avg/max/current stats,
+  amber markers on degraded buckets and gaps where nothing answered.
 - **24h uptime** — trailing-window reliability per endpoint, next to the leaderboard: green at or
   above the 99% threshold, amber below it, with probe counts, average/p95 latency and the last
   failure.
@@ -233,11 +236,29 @@ RPC ids are discovered from the JSONB keys, so a third endpoint appears in both 
 Buckets are UTC; changing the timezone in the SQL also means updating the `timezone` field the
 analytics route reports.
 
+Run `supabase/03_latency_series.sql` after the views. It adds
+`pulse_latency_series(range_key text default '24h')`, the downsampling function behind
+`GET /api/analytics?range=`. The dashboard asks for a *window*, never a row count, so the bucket
+width is chosen in Postgres instead of fetching 5 s rows and thinning them in the browser:
+
+| `range` | Window | Bucket | Points per RPC |
+| --- | --- | --- | --- |
+| `24h` (default) | 24 hours | 5 minutes | 288 |
+| `7d` | 7 days | 1 hour | 168 |
+| `30d` | 30 days | 4 hours | 180 |
+
+Buckets are epoch-aligned, so the 5 min / 1 h / 4 h widths all land on `:00` boundaries. Averages
+ignore failed probes (a timeout stores `null`, not `0`), so a bucket with no successful probe
+aggregates to `null` and the chart draws a gap rather than a misleading dip to zero. A malformed
+latency value counts as a failed probe instead of breaking the series, and an unrecognised `range`
+falls back to 24h.
+
 ### Analytics contract
 
-`GET /api/analytics` reads both views with the anon key and returns them in one envelope. The two
-queries run independently, so one broken view degrades the payload into `errors` instead of blanking
-it, and each query is bounded by an 8 s timeout:
+`GET /api/analytics?range=24h|7d|30d` reads both views plus the latency series with the anon key and
+returns them in one envelope. The three queries run independently, so one broken view degrades the
+payload into `errors` instead of blanking it, and each query is bounded by an 8 s timeout. `range`
+only affects `latencyHistory` — the uptime and heatmap views are window-independent.
 
 ```json
 {
@@ -255,14 +276,31 @@ it, and each query is bounded by an 8 s timeout:
     { "dayOfWeek": 1, "dayName": "Monday", "hourOfDay": 14, "label": "Monday 14:00",
       "sampleCount": 720, "avgGasPriceGwei": "0.0012" }
   ],
+  "latencyHistory": {
+    "range": "24h",
+    "bucketSeconds": 300,
+    "points": [
+      { "t": 1787000400000,
+        "values": { "official": { "avgMs": 122.4, "minMs": 98, "maxMs": 210, "samples": 60,
+                                  "successfulSamples": 59, "degradedSamples": 0 } } }
+    ]
+  },
   "extremes": { "cheapest": null, "priciest": null },
   "errors": []
 }
 ```
 
-`200` when every query succeeds, `503` when a query fails (the failing view is named in `errors`,
-with a pointer to `supabase/02_analytics_views.sql` when the view is missing), and `200` with
-`"configured": false` when no Supabase credentials are set at all.
+`200` when every query succeeds, `503` when a query fails (the missing object is named in `errors`
+with a pointer to the migration that creates it — `supabase/02_analytics_views.sql` for the views,
+`supabase/03_latency_series.sql` for the series function), and `200` with `"configured": false` when
+no Supabase credentials are set at all. A failed read keeps the last good payload, so the chart
+falls back to the previous window instead of going blank.
+
+The chart is bound to `selectedEndpoint`: `official` or `ankr` plot that node's own bucket averages,
+`fastest` plots the lowest bucket average across the nodes that answered (naming the winner in the
+tooltip). Switching endpoints re-renders from data already in memory — no refetch — while switching
+timeframe re-polls and covers the chart area alone with a skeleton, leaving the uptime and heatmap
+panels interactive.
 
 ## Troubleshooting
 
