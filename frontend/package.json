@@ -15,6 +15,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
+    "canvas-confetti": "^1.9.4",
+    "framer-motion": "^13.4.1",
     "lucide-react": ">=0.400.0 <1.0.0",
     "next": ">=15.4.0 <16.0.0",
     "react": ">=19.0.0 <20.0.0",
@@ -23,6 +25,7 @@
     "viem": ">=2.21.0 <3.0.0"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": ">=20.14.0 <25.0.0",
     "@types/react": ">=19.0.0 <20.0.0",
     "@types/react-dom": ">=19.0.0 <20.0.0",

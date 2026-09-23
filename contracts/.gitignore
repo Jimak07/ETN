@@ -1,0 +1,7 @@
+# foundry build artefacts
+out/
+cache/
+broadcast/
+
+# local secrets for the deploy script
+.env

@@ -1,13 +1,15 @@
 # ETN Pulse
 
 Network monitoring core of a modular Web3 utility hub for the **Electroneum Smart Chain (ETN-SC)**,
-split into two independently deployable applications:
+split into two independently deployable applications plus a standalone Foundry project for its
+on-chain utilities:
 
 | Workspace | What it is | Stack |
 | --- | --- | --- |
 | `frontend/` | Interactive dashboard and the public `/api/pulse` telemetry endpoint | Next.js 15 (App Router), TypeScript, Tailwind CSS, viem, Recharts |
 | `backend/` | Headless worker that polls the RPCs every 5s and logs history to Supabase | Node.js, TypeScript, viem, `@supabase/supabase-js`, tsx |
 | `supabase/` | Shared SQL migrations (`schema.sql`) — kept at the root | PostgreSQL / Supabase |
+| `contracts/` | Foundry project for `PulseMultiSender.sol`, the batch-sender contract | Solidity 0.8.24, Foundry, OpenZeppelin |
 
 The two apps share no code on purpose: the worker keeps collecting history while the dashboard is
 down or being redeployed, each can be scaled and restarted on its own schedule, and neither can
@@ -18,9 +20,12 @@ break the other's build.
 ```
 frontend/                 Next.js dashboard
   app/                    routes, layout, globals.css, /api/pulse, /api/analytics
+  app/multi-sender/       batch-sender page
   components/             hero, KPI cards, leaderboard, uptime, gas heatmap, sparkline
-  hooks/                  usePulse + useAnalytics polling loops, animated numbers
+  components/multi-sender/  recipient input, validation panel, summary cards, send panel, tx modal
+  hooks/                  usePulse + useAnalytics polling loops, multi-sender wallet flow
   lib/                    ETN config, viem client factory, engine, store, analytics, formatting
+  lib/multi-sender/       contract ABI, recipient parser, viem contract helpers
   next.config.mjs  postcss.config.mjs  tailwind.config.ts  tsconfig.json
   .env.example            optional Supabase read credentials
 backend/                  headless monitoring worker
@@ -38,6 +43,11 @@ supabase/schema.sql       database migration (run first)
 supabase/02_analytics_views.sql  analytics views (run after schema.sql)
 supabase/03_latency_series.sql   latency chart buckets (run after the views)
 supabase/04_wss_latency.sql      adds pulse_samples.wss_latency (run last)
+contracts/                Foundry project for the on-chain modules
+  src/PulseMultiSender.sol        batch sender (native + ERC-20)
+  script/DeployPulseMultiSender.s.sol  deployment script
+  test/PulseMultiSender.t.sol     forge test suite
+  foundry.toml  remappings.txt
 render.yaml               Render Blueprint: the backend as a free-tier web service
 package.json              convenience scripts that delegate to both workspaces
 ```
@@ -400,6 +410,100 @@ tooltip). Switching endpoints re-renders from data already in memory — no refe
 timeframe re-polls and covers the chart area alone with a skeleton, leaving the uptime and heatmap
 panels interactive.
 
+## Multi-Sender module
+
+`/multi-sender` is the hub's first write-path module: a batch sender in the spirit of CoinTool and
+Multisender.app. It pairs a Foundry contract at `contracts/src/PulseMultiSender.sol` with a
+browser-side validation dashboard, so a malformed list never reaches the network.
+
+### Networks
+
+The module is multi-chain. Both Electroneum networks are described in `frontend/lib/etn.ts` and
+projected into viem chains in `frontend/lib/etn-chain.ts`:
+
+| Network | Chain id | Native | Explorer |
+| --- | --- | --- | --- |
+| Electroneum Mainnet | `52014` (`0xcb2e`) | ETN | https://blockexplorer.electroneum.com |
+| Electroneum Testnet | `5201420` (`0x4f5e0c`) | ETN | https://testnet-blockexplorer.electroneum.com |
+
+The deployment address is resolved from the connected wallet's chain rather than from one global
+constant, because an address is only meaningful on the chain it was deployed to:
+
+```bash
+NEXT_PUBLIC_MULTISENDER_MAINNET=0x...    # used when chainId === 52014
+NEXT_PUBLIC_MULTISENDER_TESTNET=0x...    # used when chainId === 5201420
+```
+
+`NEXT_PUBLIC_MULTISENDER_ADDRESS` is still read as the mainnet value, so deployments made before
+testnet support keep working. A network with no address configured still parses and validates lists
+and reports the expected totals - it just cannot send, and says why. On Vercel both variables are
+build-time: set them in the project's environment settings and redeploy, or the page ships with
+sending disabled.
+
+Reads are chain-scoped too. Balances, token metadata and allowances come from the connected chain's
+RPC, and an unsupported chain yields no client at all rather than quietly falling back to mainnet -
+a mainnet balance shown beside a testnet wallet is the kind of stale number that gets a batch sent.
+
+Connecting never moves the wallet. On an unsupported network the Send button is replaced by one
+*Switch to ...* button per supported network, because the app cannot know whether a given batch is a
+real airdrop or a rehearsal and guessing wrong means sending real ETN. For the same reason the active
+network appears in the header badge and in the send panel, a testnet run raises an amber banner, and
+transaction links follow the chain the batch was signed on. The testnet RPC defaults to
+`https://rpc-testnet.electroneum.com`; override it with `NEXT_PUBLIC_ETN_TESTNET_RPC` if it moves.
+
+### Contract
+
+`PulseMultiSender` exposes two entry points:
+
+| Function | Purpose |
+| --- | --- |
+| `batchSendNative(address[] recipients, uint256[] amounts) payable` | sends ETN to every recipient |
+| `batchSendERC20(address token, address[] recipients, uint256[] amounts) payable` | pushes an ERC-20 with `SafeERC20` |
+
+Design notes:
+
+- `ReentrancyGuard` on both paths and `SafeERC20.safeTransferFrom` for tokens, so a malicious or
+  non-standard token can neither re-enter nor silently return `false`.
+- A batch is validated before any value moves: equal array lengths, non-empty, at most
+  `MAX_BATCH_SIZE` (200) recipients, no zero address and no zero amount. One bad row reverts the
+  whole batch, so a partial send is impossible by construction.
+- `batchSendNative` sums into a running total and then requires `msg.value` to match it exactly, so
+  stray wei is rejected rather than trapped in the contract.
+- Both functions emit one event per batch (`NativeBatchSent` / `TokenBatchSent`) instead of one per
+  recipient — cheaper to emit, and every recipient is already in calldata for indexers.
+
+```bash
+cd contracts
+forge install OpenZeppelin/openzeppelin-contracts@v5.0.2
+forge install foundry-rs/forge-std
+forge test -vv                        # 10 tests
+forge script script/DeployPulseMultiSender.s.sol --rpc-url electroneum --broadcast
+forge script script/DeployPulseMultiSender.s.sol --rpc-url electroneum-testnet --broadcast
+```
+
+The script reads `PRIVATE_KEY` from `contracts/.env` and prints the deployed address; set that as the
+matching `NEXT_PUBLIC_MULTISENDER_MAINNET` / `NEXT_PUBLIC_MULTISENDER_TESTNET` (see
+`frontend/.env.example`). Both networks are listed under `[rpc_endpoints]` in `contracts/foundry.toml`,
+so neither URL has to be remembered.
+
+### Frontend
+
+- **Input** — drag-and-drop CSV upload (2MB cap) or a paste area, both feeding one parser. A sample
+  list with a deliberately invalid row is one click away.
+- **Validation dashboard** — every row is parsed in the browser and problems surface immediately.
+  Malformed or bad-checksum addresses are red; missing, zero or over-precise amounts are red;
+  duplicate recipients and self-transfers are amber warnings that do not block a send.
+- **Summary cards** — total addresses, total to send and the connected wallet's balance, with a
+  shortfall hint when the batch exceeds it. ERC-20 mode is driven by the token address, and an
+  allowance below the batch total triggers an exact-amount approval first.
+- **Send flow** — viem `writeContract` behind a status modal walking through *Approving* (tokens
+  only), *Awaiting signature*, *Broadcasting* and *Confirmed*, then a confetti burst and a
+  block-explorer link. Batches beyond `MAX_BATCH_SIZE` are chunked client-side, and the modal names
+  the chunk in flight.
+
+The parser is deliberately strict about ambiguity: a bare number is an amount, `1,5` is two columns
+rather than a decimal comma, and an ERC-20's own `decimals()` caps the accepted precision.
+
 ## Troubleshooting
 
 **The page renders unstyled.** Tailwind is wired up (`frontend/app/layout.tsx` imports
@@ -424,5 +528,7 @@ OneDrive.
 ## Roadmap
 
 `frontend/components/module-hub.tsx` reserves the slots for the next hub modules (Swap, Stake,
-Bridge, Portfolio). Each new module can reuse the same glass shell, polling hook and `/api/*`
-conventions, and the worker can grow additional pollers alongside `src/poller.ts`.
+Bridge, Portfolio); **Multi-Sender** is the first to ship. Each new module can reuse the same glass
+shell, polling hook and `/api/*` conventions, the worker can grow additional pollers alongside
+`src/poller.ts`, and `contracts/` is where future on-chain modules go — the Foundry project is
+already configured for the ETN RPCs and the Blockscout verifier.

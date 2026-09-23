@@ -1,0 +1,35 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.24"
+optimizer = true
+# Optimise for runtime cost rather than deploy size: the contract is a single
+# hot loop, and deployments happen once.
+optimizer_runs = 1_000_000
+via_ir = false
+# Paris (no PUSH0) on purpose. ETN-SC is an Ethereum fork and its hardfork
+# support is not documented publicly, so targeting Shanghai would risk a
+# contract that deploys everywhere except the chain it is built for. Raise this
+# once the chain's EVM version is confirmed.
+evm_version = "paris"
+verbosity = 2
+fs_permissions = []
+
+[fmt]
+line_length = 100
+tab_width = 4
+quote_style = "double"
+
+[rpc_endpoints]
+electroneum = "https://rpc.electroneum.com"
+electroneum-testnet = "https://rpc-testnet.electroneum.com"
+ankr = "https://rpc.ankr.com/electroneum"
+
+[etherscan]
+# Blockscout-style explorer: foundry needs the verifier kind passed explicitly
+# (see contracts/README.md for the full verify command).
+electroneum = { key = "${ETN_EXPLORER_API_KEY}", url = "https://blockexplorer.electroneum.com/api", chain = 52014 }
+electroneum-testnet = { key = "${ETN_EXPLORER_API_KEY}", url = "https://testnet-blockexplorer.electroneum.com/api", chain = 5201420 }
