@@ -291,6 +291,7 @@ export default function MultiSenderPage() {
         onImport={handleImport}
         decimals={decimals}
         selfAddress={account}
+        currentRows={rows.length}
         disabled={sendBusy}
       />
 

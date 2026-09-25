@@ -515,6 +515,11 @@ so neither URL has to be remembered.
   modal taking a pasted list or a dropped CSV (2MB cap) that previews how many rows are ready against
   how many need attention, then either appends to or replaces the table. A sample list with a
   deliberately invalid row is one click away.
+- **250-address cap** — one giveaway holds at most `MAX_RECIPIENT_ROWS` recipients, whether the rows
+  arrive from an import or from the *Add recipient* button, because a batch that outgrows a block's
+  gas budget reverts whole rather than partially. The table and the modal both carry the advisory,
+  and the importer refuses an append that would push the table over the line, so a larger giveaway is
+  split into separate runs instead of failing at signing time.
 - **Validation** — problems surface as they are typed: malformed or bad-checksum addresses get a red
   border, missing, zero or over-precise amounts are flagged on the amount cell, and duplicate
   recipients and self-transfers are amber warnings that do not block a send. A row that has not been

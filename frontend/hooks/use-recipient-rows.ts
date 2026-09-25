@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import {
+  MAX_RECIPIENT_ROWS,
   parseRecipientRows,
   type ParsedTable,
   type RecipientDraft,
@@ -67,7 +68,12 @@ export function useRecipientRows(
   }, []);
 
   const addRow = useCallback(() => {
-    setRows((previous) => [...previous, createDraftRow()]);
+    // The table's button is already disabled at the cap; enforcing the same rule
+    // one layer down is what stops a future caller from growing the list past
+    // what a block can carry.
+    setRows((previous) =>
+      previous.length >= MAX_RECIPIENT_ROWS ? previous : [...previous, createDraftRow()],
+    );
   }, []);
 
   const appendRows = useCallback((incoming: readonly RecipientSeed[]) => {

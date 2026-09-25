@@ -391,6 +391,26 @@ export function formatTokenAmount(value: bigint | null, decimals: number, maxFra
   return trimmed.length > 0 ? `${whole}.${trimmed}` : whole;
 }
 
+/**
+ * The most recipients one giveaway may hold.
+ *
+ * Gas scales with the number of recipients, so a list that grows past what a
+ * block can carry stops being sendable at all: the transaction runs out of gas
+ * and reverts whole, taking every transfer in it with it. The ceiling is set
+ * well below the point where that becomes reachable, and it applies to the
+ * giveaway rather than to a single contract call - the way to send more is to
+ * split the run, and a run is chunked into contract-sized calls either way.
+ */
+export const MAX_RECIPIENT_ROWS = 250;
+
+/**
+ * The cap explained once, so the table and the import modal cannot disagree
+ * about the rule a sender has to work within.
+ */
+export const BATCH_CAP_NOTICE =
+  "To ensure your transaction does not exceed network gas limits, batches are capped at " +
+  `${MAX_RECIPIENT_ROWS} addresses. Please split larger giveaways into multiple batches.`;
+
 export const ROW_ISSUE_COPY: Record<RowIssue, string> = {
   "invalid-address": "Not a valid address",
   "invalid-checksum": "Checksum mismatch - likely a typo",

@@ -1,12 +1,18 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { FileSpreadsheet, FlaskConical, Trash2, TriangleAlert, UploadCloud, X } from "lucide-react";
+import { FileSpreadsheet, FlaskConical, Info, Trash2, TriangleAlert, UploadCloud, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
+import { Notice } from "@/components/ui/notice";
 import type { RecipientSeed } from "@/hooks/use-recipient-rows";
 import { cn } from "@/lib/cn";
-import { ROW_ISSUE_COPY, parseRecipientList } from "@/lib/multi-sender/parse";
+import {
+  BATCH_CAP_NOTICE,
+  MAX_RECIPIENT_ROWS,
+  ROW_ISSUE_COPY,
+  parseRecipientList,
+} from "@/lib/multi-sender/parse";
 
 /**
  * Bulk import: the paste-and-drop door into the recipient table.
@@ -22,12 +28,6 @@ export type ImportMode = "append" | "replace";
 
 /** Big enough for a 100k-row export, small enough not to wedge the tab. */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-
-/**
- * The table renders every row, so an import past this point is refused rather
- * than accepted into a tab that can no longer accept keystrokes.
- */
-const MAX_IMPORT_ROWS = 2000;
 
 const SAMPLE = [
   "address,amount",
@@ -46,6 +46,8 @@ interface BulkImportModalProps {
   onImport: (rows: readonly RecipientSeed[], mode: ImportMode) => void;
   decimals: number;
   selfAddress: string | null;
+  /** How many rows the table already holds, so an append can respect the cap. */
+  currentRows: number;
   disabled?: boolean;
 }
 
@@ -55,6 +57,7 @@ export function BulkImportModal({
   onImport,
   decimals,
   selfAddress,
+  currentRows,
   disabled = false,
 }: BulkImportModalProps) {
   const [text, setText] = useState("");
@@ -75,8 +78,16 @@ export function BulkImportModal({
     [parsed.rows],
   );
   const problems = useMemo(() => parsed.rows.filter((row) => row.issue !== null), [parsed.rows]);
-  const tooMany = seeds.length > MAX_IMPORT_ROWS;
-  const canImport = !disabled && !tooMany && seeds.length > 0;
+  /**
+   * Two ceilings, and they are not the same test. One import may hold at most
+   * the cap, and an append may not push the table past it - otherwise importing
+   * 250 rows twice would quietly undo the guarantee that a run is one giveaway
+   * that fits in a block. Replacing is always allowed: the table shrinks.
+   */
+  const overCap = seeds.length > MAX_RECIPIENT_ROWS;
+  const appendOverflow = currentRows + seeds.length > MAX_RECIPIENT_ROWS;
+  const canReplace = !disabled && !overCap && seeds.length > 0;
+  const canAppend = canReplace && !appendOverflow;
 
   useEffect(() => {
     if (!open) return;
@@ -126,14 +137,14 @@ export function BulkImportModal({
 
   const commit = useCallback(
     (mode: ImportMode) => {
-      if (!canImport) return;
+      if (mode === "append" ? !canAppend : !canReplace) return;
       onImport(seeds, mode);
       // Cleared on the way out so reopening the modal never offers to import
       // the same list twice.
       setText("");
       setFileName(null);
     },
-    [canImport, onImport, seeds],
+    [canAppend, canReplace, onImport, seeds],
   );
 
   return (
@@ -179,6 +190,14 @@ export function BulkImportModal({
               </button>
             </div>
 
+            <Notice
+              tone="slate"
+              icon={<Info className="h-4 w-4 text-cyan-300" />}
+              title="Batch size cap"
+              detail={BATCH_CAP_NOTICE}
+              className="mt-4"
+            />
+
             <div
               onDrop={onDrop}
               onDragOver={(event) => {
@@ -198,7 +217,7 @@ export function BulkImportModal({
                 if (dragDepth.current === 0) setDragging(false);
               }}
               className={cn(
-                "mt-4 rounded-xl border border-dashed transition duration-300 ease-out-expo",
+                "mt-3 rounded-xl border border-dashed transition duration-300 ease-out-expo",
                 dragging ? "border-cyan-400/70 bg-cyan-500/[0.06]" : "border-slate-700/80 bg-slate-950/40",
               )}
             >
@@ -324,10 +343,20 @@ export function BulkImportModal({
               </ul>
             ) : null}
 
-            {tooMany ? (
+            {overCap ? (
               <p className="mt-3 rounded-xl border border-status-offline/30 bg-status-offline/[0.07] px-3 py-2.5 text-[0.68rem] leading-relaxed text-slate-300">
-                That is <span className="num">{seeds.length}</span> rows - this table edits up to{" "}
-                <span className="num">{MAX_IMPORT_ROWS}</span> at a time. Split the list and send it in parts.
+                That is <span className="num">{seeds.length}</span> rows - the cap is{" "}
+                <span className="num">{MAX_RECIPIENT_ROWS}</span> addresses per giveaway. Split the list and send it
+                in parts.
+              </p>
+            ) : null}
+
+            {!overCap && appendOverflow ? (
+              <p className="mt-3 rounded-xl border border-status-degraded/30 bg-status-degraded/[0.07] px-3 py-2.5 text-[0.68rem] leading-relaxed text-slate-300">
+                Your table already holds <span className="num">{currentRows}</span> of{" "}
+                <span className="num">{MAX_RECIPIENT_ROWS}</span> addresses, so adding these{" "}
+                <span className="num">{seeds.length}</span> would breach the cap. Replace the table instead, or split
+                the list.
               </p>
             ) : null}
 
@@ -342,10 +371,10 @@ export function BulkImportModal({
               <button
                 type="button"
                 onClick={() => commit("replace")}
-                disabled={!canImport}
+                disabled={!canReplace}
                 className={cn(
                   "rounded-xl border px-3.5 py-2 text-xs font-medium transition",
-                  canImport
+                  canReplace
                     ? "border-slate-700 text-slate-300 hover:border-cyan-500/40 hover:text-cyan-300"
                     : "cursor-not-allowed border-slate-800 text-slate-600",
                 )}
@@ -355,10 +384,10 @@ export function BulkImportModal({
               <button
                 type="button"
                 onClick={() => commit("append")}
-                disabled={!canImport}
+                disabled={!canAppend}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition duration-200 ease-out-expo",
-                  canImport
+                  canAppend
                     ? "bg-cyan-400 text-slate-950 hover:bg-cyan-300 hover:shadow-glow"
                     : "cursor-not-allowed border border-slate-800 bg-slate-900/60 text-slate-500",
                 )}

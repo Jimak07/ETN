@@ -1,11 +1,14 @@
 "use client";
 
-import { Plus, Trash2, Upload, Users, Wand2 } from "lucide-react";
+import { Info, Plus, Trash2, Upload, Users, Wand2 } from "lucide-react";
 import { useId, useState } from "react";
 
 import { GlassCard, SectionHeading } from "@/components/ui/glass-card";
+import { Notice } from "@/components/ui/notice";
 import { cn } from "@/lib/cn";
 import {
+  BATCH_CAP_NOTICE,
+  MAX_RECIPIENT_ROWS,
   ROW_ISSUE_COPY,
   ROW_WARNING_COPY,
   type ParsedTable,
@@ -76,6 +79,8 @@ export function RecipientTable({
     onApplyUniformAmount(uniform.trim());
   };
   const canApplyUniform = !disabled && rows.length > 0 && uniform.trim().length > 0;
+  /** At the ceiling the table stops growing, whatever the route in. */
+  const atCap = rows.length >= MAX_RECIPIENT_ROWS;
 
   return (
     <GlassCard className="p-5">
@@ -99,7 +104,15 @@ export function RecipientTable({
         }
       />
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+      <Notice
+        tone="slate"
+        icon={<Info className="h-4 w-4 text-cyan-300" />}
+        title="Batch size cap"
+        detail={BATCH_CAP_NOTICE}
+        className="mt-4"
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
         <Wand2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
         <label htmlFor={uniformId} className="text-[0.68rem] font-medium text-slate-400">
           Apply uniform amount
@@ -137,8 +150,8 @@ export function RecipientTable({
         >
           Apply to all
         </button>
-        <span className="num ml-auto text-[0.68rem] text-slate-500">
-          {rows.length} row{rows.length === 1 ? "" : "s"} · {decimals} decimals
+        <span className={cn("num ml-auto text-[0.68rem]", atCap ? "text-status-degraded" : "text-slate-500")}>
+          {rows.length} row{rows.length === 1 ? "" : "s"} of {MAX_RECIPIENT_ROWS} · {decimals} decimals
         </span>
       </div>
 
@@ -264,15 +277,25 @@ export function RecipientTable({
       <button
         type="button"
         onClick={onAdd}
-        disabled={disabled}
+        disabled={disabled || atCap}
+        title={atCap ? `The table already holds the maximum ${MAX_RECIPIENT_ROWS} recipients.` : undefined}
         className={cn(
-          "mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-700/80 px-3 py-2.5 text-xs font-medium text-slate-400 transition duration-200 ease-out-expo",
-          "hover:border-cyan-500/40 hover:text-cyan-300 disabled:opacity-50",
+          "mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed px-3 py-2.5 text-xs font-medium transition duration-200 ease-out-expo",
+          "disabled:opacity-50",
+          atCap
+            ? "cursor-not-allowed border-slate-800 text-slate-600"
+            : "border-slate-700/80 text-slate-400 hover:border-cyan-500/40 hover:text-cyan-300",
         )}
       >
         <Plus className="h-3.5 w-3.5" />
         Add recipient
       </button>
+
+      {atCap ? (
+        <p className="mt-1.5 text-center text-[0.62rem] leading-relaxed text-status-degraded">
+          {MAX_RECIPIENT_ROWS}-address cap reached - remove a row to add another.
+        </p>
+      ) : null}
     </GlassCard>
   );
 }
