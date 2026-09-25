@@ -2,6 +2,7 @@ import {
   BaseError,
   ContractFunctionRevertedError,
   UserRejectedRequestError,
+  WaitForTransactionReceiptTimeoutError,
   createPublicClient,
   createWalletClient,
   custom,
@@ -13,6 +14,7 @@ import {
   type Address,
   type Hash,
   type PublicClient,
+  type TransactionReceipt,
 } from "viem";
 
 import { getViemChain, getViemChainOrDefault } from "@/lib/etn-chain";
@@ -90,6 +92,56 @@ export const hasAnyMultiSenderDeployment: boolean = Object.values(MULTISENDER_AD
 
 /** Mirrors the contract constant; the chain value wins when it can be read. */
 export const FALLBACK_MAX_BATCH_SIZE = 200;
+
+/**
+ * How long to keep watching for a receipt before handing the user a manual check.
+ *
+ * ETN's block time is about five seconds, so 120s is roughly 24 blocks - far
+ * longer than a healthy chain needs, which is the point. Electroneum testnet
+ * RPCs frequently fall behind, and a transaction that is mined but simply not
+ * *reported* is indistinguishable from a failure to a short timeout. Waiting
+ * costs nothing here; a false "Failed" costs the user a duplicate send.
+ */
+export const RECEIPT_TIMEOUT_MS = 120_000;
+
+/**
+ * Receipt polling cadence, deliberately slower than viem's 4s default.
+ *
+ * Public Electroneum endpoints rate-limit, and a long wait multiplies whatever
+ * cadence is chosen: 3s over 120s is 40 requests per batch. Polling faster buys
+ * nothing, because the receipt is only visible once the node has indexed the
+ * block anyway.
+ */
+export const RECEIPT_POLLING_INTERVAL_MS = 3_000;
+
+/**
+ * Waits for a receipt with this module's timeout and cadence.
+ *
+ * A wrapper rather than inline options at each call site so the approval and the
+ * batch cannot drift apart - the approval previously used viem's defaults, which
+ * is exactly the asymmetry that produces a timeout on one leg and not the other.
+ */
+export function waitForReceipt(client: PublicClient, hash: Hash): Promise<TransactionReceipt> {
+  return client.waitForTransactionReceipt({
+    hash,
+    timeout: RECEIPT_TIMEOUT_MS,
+    pollingInterval: RECEIPT_POLLING_INTERVAL_MS,
+  });
+}
+
+/**
+ * True when a receipt wait ran out of time, as opposed to the transaction
+ * failing.
+ *
+ * The distinction is the whole point of this module's error handling: a timeout
+ * means "we stopped looking", not "it did not happen", and the two must never
+ * render the same way. The name check is a fallback for a viem error that has
+ * been re-wrapped somewhere along the transport chain.
+ */
+export function isReceiptTimeout(error: unknown): boolean {
+  if (error instanceof WaitForTransactionReceiptTimeoutError) return true;
+  return (error as { name?: string } | null)?.name === "WaitForTransactionReceiptTimeoutError";
+}
 
 export const NATIVE_DECIMALS = ETN_NATIVE_DECIMALS;
 

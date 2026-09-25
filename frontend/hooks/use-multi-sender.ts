@@ -13,6 +13,7 @@ import {
   getWalletClient,
   hasAnyMultiSenderDeployment,
   isMultiSenderConfigured,
+  isReceiptTimeout,
   readAllowance,
   readMaxBatchSize,
   readNativeBalance,
@@ -20,6 +21,7 @@ import {
   readTokenMetadata,
   sendNativeBatch,
   sendTokenBatch,
+  waitForReceipt,
   type SendErrorCopy,
 } from "@/lib/multi-sender/contract";
 import { planBatches, type RecipientRow } from "@/lib/multi-sender/parse";
@@ -46,10 +48,18 @@ import { getEthereumProvider, switchEtnChain, type Eip1193Provider } from "@/lib
 export type SendMode = "native" | "erc20";
 
 /**
- * `signing` -> the wallet is waiting for the user (approval or batch).
- * `broadcasting` -> a hash exists and the receipt is pending.
+ * `signing`      -> the wallet is waiting for the user (approval or batch).
+ * `broadcasting` -> a hash exists and the receipt is pending. The transaction is
+ *                   already irreversible at this point, which is why the UI
+ *                   presents it as a success rather than as a spinner.
+ * `confirmed`    -> a receipt arrived and every transfer landed.
+ * `unconfirmed`  -> we stopped waiting for a receipt. Not a failure: the
+ *                   transaction was broadcast, we simply never saw it mined.
+ *                   Kept distinct from `error` so a slow testnet RPC can never
+ *                   render as a red "Failed" banner.
+ * `error`        -> nothing was broadcast (declined, reverted, unfunded).
  */
-export type SendPhase = "idle" | "signing" | "broadcasting" | "confirmed" | "error";
+export type SendPhase = "idle" | "signing" | "broadcasting" | "confirmed" | "unconfirmed" | "error";
 
 export type SendStep = "approval" | "batch";
 
@@ -506,6 +516,41 @@ export function useMultiSender() {
         startedAt,
       });
 
+      /**
+       * Waits for a receipt and reports which of the two outcomes happened.
+       *
+       * Returns "unconfirmed" instead of throwing when the wait times out. The
+       * caller then stops the run: continuing to later batches while an earlier
+       * one is unobserved would send a partial airdrop with no way to tell which
+       * half landed. Reverting receipts still throw, because those genuinely
+       * failed on chain.
+       */
+      const settle = async (
+        hash: Hash,
+        step: SendStep,
+        batchIndex: number,
+        revertedMessage: string,
+      ): Promise<"confirmed" | "unconfirmed"> => {
+        try {
+          const receipt = await waitForReceipt(client, hash);
+          if (receipt.status !== "success") {
+            throw new Error(revertedMessage);
+          }
+          return "confirmed";
+        } catch (error) {
+          if (!isReceiptTimeout(error)) throw error;
+          setProgress((previous) => ({
+            ...previous,
+            phase: "unconfirmed",
+            step,
+            batchIndex,
+            hash,
+            finishedAt: Date.now(),
+          }));
+          return "unconfirmed";
+        }
+      };
+
       try {
         if (mode === "erc20" && token.address) {
           const allowance = token.allowance ?? 0n;
@@ -518,14 +563,21 @@ export function useMultiSender() {
             setProgress((previous) => ({
               ...previous,
               phase: "broadcasting",
+              step: "approval",
               approvalHash,
               hash: approvalHash,
             }));
 
-            const approvalReceipt = await client.waitForTransactionReceipt({ hash: approvalHash });
-            if (approvalReceipt.status !== "success") {
-              throw new Error("The token approval transaction reverted.");
-            }
+            // The batch cannot be built until the allowance is known to exist,
+            // so an unobserved approval ends the run rather than being retried.
+            const approvalOutcome = await settle(
+              approvalHash,
+              "approval",
+              1,
+              "The token approval transaction reverted.",
+            );
+            if (approvalOutcome === "unconfirmed") return;
+
             await refreshToken();
           }
         }
@@ -547,12 +599,21 @@ export function useMultiSender() {
               : await sendTokenBatch(wallet, chainId, token.address as Address, batch);
 
           lastHash = hash;
-          setProgress((previous) => ({ ...previous, phase: "broadcasting", hash }));
+          setProgress((previous) => ({
+            ...previous,
+            phase: "broadcasting",
+            step: "batch",
+            batchIndex: batch.index,
+            hash,
+          }));
 
-          const receipt = await client.waitForTransactionReceipt({ hash });
-          if (receipt.status !== "success") {
-            throw new Error(`Batch ${batch.index} was mined but reverted.`);
-          }
+          const outcome = await settle(
+            hash,
+            "batch",
+            batch.index,
+            `Batch ${batch.index} was mined but reverted.`,
+          );
+          if (outcome === "unconfirmed") return;
         }
 
         setProgress((previous) => ({

@@ -500,6 +500,13 @@ so neither URL has to be remembered.
   only), *Awaiting signature*, *Broadcasting* and *Confirmed*, then a confetti burst and a
   block-explorer link. Batches beyond `MAX_BATCH_SIZE` are chunked client-side, and the modal names
   the chunk in flight.
+- **Slow receipts** — a broadcast transaction is presented as a success the moment the wallet
+  returns a hash, never as a spinner that might turn red. The receipt wait allows 120s at a 3s
+  polling cadence, because the public Electroneum RPCs rate-limit under faster polling. Twenty
+  seconds in, the modal offers *Taking too much time? Check status*; if the wait then runs out it
+  says **Still confirming** in amber with a manual explorer link rather than a failure banner, since
+  a receipt we never observed is not evidence that the batch did not land. The run stops at that
+  batch instead of continuing, so a partial airdrop can be checked before the rest is sent.
 
 The parser is deliberately strict about ambiguity: a bare number is an amount, `1,5` is two columns
 rather than a decimal comma, and an ERC-20's own `decimals()` caps the accepted precision.
