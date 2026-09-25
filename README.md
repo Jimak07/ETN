@@ -506,7 +506,11 @@ so neither URL has to be remembered.
   seconds in, the modal offers *Taking too much time? Check status*; if the wait then runs out it
   says **Still confirming** in amber with a manual explorer link rather than a failure banner, since
   a receipt we never observed is not evidence that the batch did not land. The run stops at that
-  batch instead of continuing, so a partial airdrop can be checked before the rest is sent.
+  batch instead of continuing, so a partial airdrop can be checked before the rest is sent. The app
+  then asks the explorer (`gettxreceiptstatus` on the chain's own API base - testnet and mainnet
+  have separate hosts) whether the hash actually succeeded: a proven success turns the run green and
+  fires the confetti, a proven revert is the only thing that turns it red, and silence leaves the
+  user where they were.
 
 The parser is deliberately strict about ambiguity: a bare number is an amount, `1,5` is two columns
 rather than a decimal comma, and an ERC-20's own `decimals()` caps the accepted precision.

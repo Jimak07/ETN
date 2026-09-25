@@ -14,6 +14,7 @@ import {
   hasAnyMultiSenderDeployment,
   isMultiSenderConfigured,
   isReceiptTimeout,
+  pollExplorerReceiptStatus,
   readAllowance,
   readMaxBatchSize,
   readNativeBalance,
@@ -152,6 +153,16 @@ export function useMultiSender() {
   const [progress, setProgress] = useState<SendProgress>(IDLE_PROGRESS);
 
   const sendingRef = useRef(false);
+  /**
+   * Cancels an in-flight explorer poll.
+   *
+   * Aborted on unmount and whenever a run is dismissed, so a late explorer answer
+   * cannot reopen a modal the user has already closed.
+   */
+  const explorerWatchRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => explorerWatchRef.current?.abort(), []);
+
   // Only a chain this app can actually act on counts as "ok": a wallet parked on
   // some unrelated EVM network is a blocking state, not an implicit mainnet.
   const chainOk = isSupportedEtnChain(chainId);
@@ -525,6 +536,69 @@ export function useMultiSender() {
        * half landed. Reverting receipts still throw, because those genuinely
        * failed on chain.
        */
+
+      /**
+       * Keeps asking the explorer after the RPC has given up.
+       *
+       * A timed-out receipt wait means *we stopped asking*, not that the batch
+       * failed, and the explorer indexes independently of the node we were
+       * talking to. It is asked on the chain the wallet is on, so a testnet hash
+       * is checked against the testnet explorer.
+       *
+       * A definite answer settles the run properly: success turns the amber
+       * "still confirming" into the confirmed state, and only a proven revert
+       * turns it red. Anything else - still indexing, or a request that never
+       * landed - leaves the user exactly where they were, with the manual
+       * explorer link.
+       */
+      const watchExplorer = (
+        hash: Hash,
+        step: SendStep,
+        batchIndex: number,
+        revertedMessage: string,
+      ) => {
+        explorerWatchRef.current?.abort();
+        const controller = new AbortController();
+        explorerWatchRef.current = controller;
+
+        void (async () => {
+          const status = await pollExplorerReceiptStatus(chainId, hash, {
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) return;
+
+          // The state is re-checked before it is written: a slow answer from an
+          // earlier run must not land on top of a newer one, or reopen a modal
+          // the user has dismissed.
+          if (status === "success") {
+            setProgress((previous) =>
+              previous.phase === "unconfirmed" && previous.hash === hash
+                ? { ...previous, phase: "confirmed", step, batchIndex, hash, finishedAt: Date.now() }
+                : previous,
+            );
+            void refreshNativeBalance();
+            void refreshToken();
+            return;
+          }
+
+          if (status === "failed") {
+            setProgress((previous) =>
+              previous.phase === "unconfirmed" && previous.hash === hash
+                ? {
+                    ...previous,
+                    phase: "error",
+                    error: {
+                      title: "Transaction reverted",
+                      detail: `${revertedMessage} The explorer confirms it failed on chain, so nothing was sent.`,
+                    },
+                    finishedAt: Date.now(),
+                  }
+                : previous,
+            );
+          }
+        })();
+      };
+
       const settle = async (
         hash: Hash,
         step: SendStep,
@@ -547,6 +621,7 @@ export function useMultiSender() {
             hash,
             finishedAt: Date.now(),
           }));
+          watchExplorer(hash, step, batchIndex, revertedMessage);
           return "unconfirmed";
         }
       };
@@ -657,7 +732,11 @@ export function useMultiSender() {
     ],
   );
 
-  const reset = useCallback(() => setProgress(IDLE_PROGRESS), []);
+  const reset = useCallback(() => {
+    explorerWatchRef.current?.abort();
+    explorerWatchRef.current = null;
+    setProgress(IDLE_PROGRESS);
+  }, []);
 
   const sendBusy = progress.phase === "signing" || progress.phase === "broadcasting";
 

@@ -163,6 +163,115 @@ export function explorerAddressUrl(chainId: number | null | undefined, address: 
   return `${getEtnChainOrDefault(chainId).explorerUrl}/address/${address}`;
 }
 
+// --- explorer API -----------------------------------------------------------
+
+/**
+ * Explorer REST base for a chain.
+ *
+ * Read from the same chain table that backs `explorerTxUrl`, so a link and the
+ * API asked to verify it can never disagree about which network they describe.
+ * A hardcoded base was exactly that bug: a testnet hash checked against the
+ * mainnet explorer, which answers "not found" for a transaction that is right
+ * there on testnet.
+ *
+ *   mainnet (52014)   -> https://blockexplorer.electroneum.com/api
+ *   testnet (5201420) -> https://testnet-blockexplorer.electroneum.com/api
+ */
+export function explorerApiBaseUrl(chainId: number | null | undefined): string {
+  return getEtnChainOrDefault(chainId).explorerApiUrl;
+}
+
+/**
+ * Receipt-status endpoint for a transaction hash, in Etherscan's shape - which
+ * is what both Electroneum explorers expose.
+ *
+ * The hash is interpolated verbatim: viem hands us a 0x-prefixed hex string and
+ * these endpoints take it unencoded.
+ */
+export function explorerReceiptStatusUrl(
+  chainId: number | null | undefined,
+  txHash: string,
+): string {
+  return `${explorerApiBaseUrl(chainId)}?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`;
+}
+
+/** What the explorer is able to say about a transaction. */
+export type ExplorerReceiptStatus = "success" | "failed" | "pending" | "unknown";
+
+/**
+ * Asks the explorer - not the RPC - whether a transaction succeeded.
+ *
+ * This is the fallback for the case the RPC cannot answer: a node that has not
+ * indexed the block, or one that has started rate-limiting us. The explorer
+ * indexes independently, so it is a second opinion rather than a retry of the
+ * same question.
+ *
+ * Deliberately conservative about "failed". The outer `status` field describes
+ * the API call, not the transaction, and a receipt the explorer has not seen yet
+ * comes back as an error payload. Reading either as a reverted transaction is
+ * the false red this path exists to avoid, so only an explicit `result.status`
+ * of "0" on a call the explorer itself called OK counts as a failure.
+ */
+export async function fetchExplorerReceiptStatus(
+  chainId: number | null | undefined,
+  txHash: string,
+  signal?: AbortSignal,
+): Promise<ExplorerReceiptStatus> {
+  const response = await fetch(explorerReceiptStatusUrl(chainId, txHash), { signal });
+  if (!response.ok) return "unknown";
+
+  const payload = (await response.json()) as {
+    status?: string;
+    result?: { status?: string } | null;
+  };
+
+  if (payload.status !== "1") return "pending";
+  return payload.result?.status === "1" ? "success" : "failed";
+}
+
+/**
+ * Explorer polling cadence, slower than the RPC wait: an explorer indexes behind
+ * the chain, so asking faster mostly buys rate-limiting.
+ */
+export const EXPLORER_POLL_INTERVAL_MS = 10_000;
+
+/** How many explorer attempts before the answer is "we still do not know". */
+export const EXPLORER_POLL_ATTEMPTS = 6;
+
+/**
+ * Polls the explorer until it commits to an outcome, or the attempts run out.
+ *
+ * Resolves "success" or "failed" the moment the explorer is sure, and "unknown"
+ * when it never becomes sure - which the caller must keep rendering as "still
+ * confirming", never as a failure. A request that throws (offline, blocked by
+ * CORS) is treated the same as one that says nothing: no evidence either way.
+ */
+export async function pollExplorerReceiptStatus(
+  chainId: number | null | undefined,
+  txHash: string,
+  options: { signal?: AbortSignal; attempts?: number; intervalMs?: number } = {},
+): Promise<ExplorerReceiptStatus> {
+  const attempts = options.attempts ?? EXPLORER_POLL_ATTEMPTS;
+  const intervalMs = options.intervalMs ?? EXPLORER_POLL_INTERVAL_MS;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (options.signal?.aborted) return "unknown";
+
+    try {
+      const status = await fetchExplorerReceiptStatus(chainId, txHash, options.signal);
+      if (status === "success" || status === "failed") return status;
+    } catch {
+      // Keep waiting rather than reporting on a request that never landed.
+    }
+
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+
+  return "unknown";
+}
+
 const readClients = new Map<number, PublicClient>();
 
 /**
