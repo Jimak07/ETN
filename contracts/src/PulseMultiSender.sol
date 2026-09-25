@@ -49,26 +49,16 @@ contract PulseMultiSender is ReentrancyGuard {
 
     /**
      * @notice Sends `amounts[i]` of native ETN to `recipients[i]` for every i.
-     * @dev `msg.value` must equal the sum of `amounts` exactly. Excess value is
-     * rejected rather than refunded: silently keeping the difference would make
-     * the contract custodial, and refunding it would cost the sender an extra
-     * transfer for a mistake the UI already prevents.
+     * @dev `msg.value` must be at least the sum of `amounts`. Excess value is
+     * automatically refunded to `msg.sender` to prevent any trapped native funds.
      */
     function batchSendNative(
         address[] calldata recipients,
         uint256[] calldata amounts
     ) external payable nonReentrant {
-        uint256 count = _validateBatch(recipients, amounts);
+        (uint256 count, uint256 total) = _validateAndSumBatch(recipients, amounts);
 
-        uint256 total;
-        for (uint256 i; i < count; ) {
-            total += amounts[i];
-            unchecked {
-                ++i;
-            }
-        }
-
-        require(msg.value == total, "msg.value != total");
+        require(msg.value >= total, "insufficient msg.value");
 
         for (uint256 i; i < count; ) {
             // A raw call rather than `transfer`/`send`: the 2300 gas stipend is
@@ -80,6 +70,13 @@ contract PulseMultiSender is ReentrancyGuard {
             unchecked {
                 ++i;
             }
+        }
+
+        // Refund any excess msg.value to msg.sender to prevent accidental trapped value
+        uint256 excess = msg.value - total;
+        if (excess > 0) {
+            (bool refunded, ) = msg.sender.call{ value: excess }("");
+            require(refunded, "refund failed");
         }
 
         emit NativeBatchSent(msg.sender, count, total);
@@ -109,15 +106,7 @@ contract PulseMultiSender is ReentrancyGuard {
         // return it to the sender.
         require(msg.value == 0, "no native value");
 
-        uint256 count = _validateBatch(recipients, amounts);
-
-        uint256 total;
-        for (uint256 i; i < count; ) {
-            total += amounts[i];
-            unchecked {
-                ++i;
-            }
-        }
+        (uint256 count, uint256 total) = _validateAndSumBatch(recipients, amounts);
 
         IERC20 erc20 = IERC20(token);
         for (uint256 i; i < count; ) {
@@ -131,18 +120,15 @@ contract PulseMultiSender is ReentrancyGuard {
     }
 
     /**
-     * @dev Shared validation for both entry points. Returns the recipient count
-     * so callers do not re-read `recipients.length` from calldata.
+     * @dev Combined validation and sum calculation in a single pass over calldata
+     * to eliminate redundant O(N) loops and reduce gas.
      *
-     * Zero amounts are rejected as well as zero addresses. An empty amount is
-     * almost always a parsing mistake in a pasted list, and a zero-value
-     * transfer still costs the sender gas, so failing the whole batch is the
-     * kinder outcome. Both checks are single `ISZERO`/`JUMPI` pairs.
+     * Zero amounts and zero addresses are strictly rejected.
      */
-    function _validateBatch(
+    function _validateAndSumBatch(
         address[] calldata recipients,
         uint256[] calldata amounts
-    ) private pure returns (uint256 count) {
+    ) private pure returns (uint256 count, uint256 total) {
         count = recipients.length;
         require(count == amounts.length, "length mismatch");
         require(count != 0, "empty batch");
@@ -151,6 +137,7 @@ contract PulseMultiSender is ReentrancyGuard {
         for (uint256 i; i < count; ) {
             require(recipients[i] != address(0), "zero recipient");
             require(amounts[i] != 0, "zero amount");
+            total += amounts[i];
             unchecked {
                 ++i;
             }

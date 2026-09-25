@@ -159,21 +159,36 @@ function isHeaderRow(fields: string[]): boolean {
   return ADDRESS_HEADER.has(first) && (fields.length === 1 || AMOUNT_HEADER.has(second));
 }
 
+/**
+ * Sanitizes input by removing invisible zero-width spaces, control characters,
+ * and dangerous CSV formula injection prefixes (=, @, +, -) on non-numeric strings.
+ */
+export function sanitizeInput(value: string): string {
+  // Strip zero-width characters (homoglyph/invisible spoofing) and ASCII control characters
+  let cleaned = value.replace(/[\u200B-\u200D\uFEFF\x00-\x1F\x7F]/g, "").trim();
+  // Strip spreadsheet formula injection prefixes if the string is not purely numeric
+  if (/^[=@+\-]/.test(cleaned) && !/^[+\-]?\d+(\.\d+)?$/.test(cleaned)) {
+    cleaned = cleaned.replace(/^[=@+\-]+/, "").trim();
+  }
+  return cleaned;
+}
+
 function parseAddress(raw: string): { address: `0x${string}` | null; issue: RowIssue | null } {
+  const cleaned = sanitizeInput(raw);
   // Non-strict first: it accepts any casing, so the checksum check below is
   // what catches a munged mixed-case address (a strong typo signal).
-  if (!isAddress(raw, { strict: false })) return { address: null, issue: "invalid-address" };
+  if (!isAddress(cleaned, { strict: false })) return { address: null, issue: "invalid-address" };
   try {
-    return { address: getAddress(raw), issue: null };
+    return { address: getAddress(cleaned), issue: null };
   } catch {
     return { address: null, issue: "invalid-checksum" };
   }
 }
 
 function parseAmount(raw: string, decimals: number): { amountWei: bigint | null; issue: RowIssue | null } {
-  // Underscores and leading plus signs are spreadsheet artefacts; a leading
-  // minus or a currency symbol is a mistake we want to surface, not strip.
-  const cleaned = raw.replace(/[_+]/g, "").replace(/^[$€£]/, "");
+  // Strip zero-width characters, control chars, spreadsheet artifacts, and currency symbols
+  const sanitized = sanitizeInput(raw);
+  const cleaned = sanitized.replace(/[_+]/g, "").replace(/^[$€£]/, "");
   if (!/^\d*\.?\d+$|^\d+\.?$/.test(cleaned)) return { amountWei: null, issue: "invalid-amount" };
 
   try {

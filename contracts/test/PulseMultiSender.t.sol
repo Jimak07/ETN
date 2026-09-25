@@ -62,11 +62,25 @@ contract PulseMultiSenderTest is Test {
         sender.batchSendNative{ value: 1 ether }(recipients, amounts);
     }
 
-    function testBatchSendNativeRevertsOnWrongValue() public {
+    function testBatchSendNativeRevertsOnInsufficientValue() public {
         (address[] memory recipients, uint256[] memory amounts) = _list();
 
-        vm.expectRevert("msg.value != total");
+        vm.expectRevert("insufficient msg.value");
         sender.batchSendNative{ value: 2 ether }(recipients, amounts);
+    }
+
+    function testBatchSendNativeRefundsExcessValue() public {
+        (address[] memory recipients, uint256[] memory amounts) = _list();
+        uint256 startBalance = address(this).balance;
+
+        // Total required is 3 ether; send 5 ether (excess 2 ether)
+        sender.batchSendNative{ value: 5 ether }(recipients, amounts);
+
+        assertEq(alice.balance, 1 ether);
+        assertEq(bob.balance, 2 ether);
+        assertEq(address(sender).balance, 0);
+        // Excess 2 ether was refunded back to this contract
+        assertEq(address(this).balance, startBalance - 3 ether);
     }
 
     function testBatchSendNativeRevertsOnZeroRecipient() public {

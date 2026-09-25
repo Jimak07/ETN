@@ -139,9 +139,12 @@ export function SendPanel({
 
       {approvalNeeded ? (
         <p className="mt-3 flex items-start gap-1.5 rounded-xl border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[0.68rem] leading-relaxed text-slate-400">
-          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-status-degraded" />
-          Two transactions: an approval for exactly this batch, then the send. The allowance is spent by the batch,
-          never left open.
+          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-cyan-400" />
+          <span>
+            <strong className="text-cyan-300 font-medium">Exact allowance only:</strong> Requests approval for exactly{" "}
+            <span className="num text-slate-200">{formatTokenAmount(totalWei, decimals, 4)} {symbol}</span>. No
+            infinite allowances are requested or left open.
+          </span>
         </p>
       ) : null}
 

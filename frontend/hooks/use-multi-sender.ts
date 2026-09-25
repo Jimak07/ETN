@@ -678,6 +678,20 @@ export function useMultiSender() {
           const allowance = token.allowance ?? 0n;
 
           if (allowance < totalWei) {
+            // Some tokens (notably USDT on Ethereum) revert on approve() if an existing
+            // non-zero allowance is changed directly to another non-zero amount.
+            // Reset to 0 first if allowance is non-zero to guarantee execution.
+            if (allowance > 0n) {
+              const resetHash = await approveToken(wallet, chainId, token.address, 0n);
+              const resetOutcome = await settle(
+                resetHash,
+                "approval",
+                1,
+                "The token allowance reset transaction reverted.",
+              );
+              if (resetOutcome === "unconfirmed") return;
+            }
+
             // Exact allowance, not an unlimited one: the contract can then never
             // move more than the batch the user actually approved, and a leaked
             // approval is worth only the run it was granted for.

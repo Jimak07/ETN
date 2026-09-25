@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CircleCheck, Coins, Loader2, TriangleAlert } from "lucide-react";
+import { CircleCheck, Coins, Loader2, ShieldAlert, TriangleAlert } from "lucide-react";
 import { useId } from "react";
 
 import { GlassCard, SectionHeading } from "@/components/ui/glass-card";
@@ -40,7 +40,15 @@ const OPTIONS: readonly { value: AssetKind; label: string }[] = [
 ];
 
 /** What the chain read produced: loading, a failure, or the resolved token. */
-function TokenReadout({ token, chain }: { token: TokenState; chain: ChainConfig }) {
+function TokenReadout({
+  token,
+  chain,
+  isCustom = false,
+}: {
+  token: TokenState;
+  chain: ChainConfig;
+  isCustom?: boolean;
+}) {
   if (token.loading) {
     return (
       <p className="flex items-center gap-1.5 text-[0.68rem] text-slate-500">
@@ -61,23 +69,64 @@ function TokenReadout({ token, chain }: { token: TokenState; chain: ChainConfig 
 
   if (!token.address) return null;
 
+  // Check for symbol collision with known curated tokens on this chain (anti-phishing)
+  const popular = getPopularTokens(chain.id);
+  const impersonated = isCustom
+    ? popular.find(
+        (p) =>
+          p.symbol.toLowerCase() === token.symbol.toLowerCase() &&
+          p.address.toLowerCase() !== token.address?.toLowerCase(),
+      )
+    : null;
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[0.68rem]">
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-status-healthy/30 bg-status-healthy/[0.07] px-2 py-0.5 text-status-healthy">
-        <CircleCheck className="h-3 w-3" />
-        {token.symbol}
-      </span>
-      <span className="num rounded-full border border-slate-800 bg-slate-900/60 px-2 py-0.5 text-slate-300">
-        {token.decimals} decimals
-      </span>
-      <a
-        href={`${chain.explorerUrl}/token/${token.address}`}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="num text-slate-500 transition hover:text-cyan-300"
-      >
-        {token.address.slice(0, 8)}...{token.address.slice(-6)}
-      </a>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-[0.68rem]">
+        {isCustom ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-400">
+            <ShieldAlert className="h-3 w-3" />
+            Unverified: {token.symbol}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-status-healthy/30 bg-status-healthy/[0.07] px-2 py-0.5 text-status-healthy">
+            <CircleCheck className="h-3 w-3" />
+            {token.symbol}
+          </span>
+        )}
+        <span className="num rounded-full border border-slate-800 bg-slate-900/60 px-2 py-0.5 text-slate-300">
+          {token.decimals} decimals
+        </span>
+        <a
+          href={`${chain.explorerUrl}/token/${token.address}`}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="num text-slate-500 transition hover:text-cyan-300"
+        >
+          {token.address.slice(0, 8)}...{token.address.slice(-6)}
+        </a>
+      </div>
+
+      {impersonated ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-[0.68rem] text-amber-300"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          <div>
+            <p className="font-semibold text-amber-200">Potential Token Impersonation Warning</p>
+            <p className="mt-0.5 text-amber-300/90 leading-relaxed">
+              This contract uses symbol &apos;{token.symbol}&apos;, but does not match the known {token.symbol} token
+              contract ({impersonated.address.slice(0, 6)}...{impersonated.address.slice(-4)}). Anyone can deploy a
+              token with any name. Verify the contract address before sending or approving funds.
+            </p>
+          </div>
+        </div>
+      ) : isCustom ? (
+        <p className="text-[0.62rem] leading-relaxed text-slate-500">
+          ⚠️ Custom tokens are unverified. Please double-check the contract address on the block explorer to avoid
+          interacting with malicious or counterfeit contracts.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -205,7 +254,7 @@ export function AssetSelector({
               "disabled:opacity-60",
             )}
           />
-          <TokenReadout token={token} chain={chain} />
+          <TokenReadout token={token} chain={chain} isCustom={true} />
           {!token.address && !token.error && !token.loading ? (
             <p className="text-[0.68rem] leading-relaxed text-slate-500">
               Symbol and decimals are read from the contract itself, so a wrong address fails here instead of

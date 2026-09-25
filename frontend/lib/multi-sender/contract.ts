@@ -499,6 +499,10 @@ export interface SendErrorCopy {
  * unmapped falls through to viem's `shortMessage` rather than being hidden.
  */
 const REVERT_COPY: Record<string, SendErrorCopy> = {
+  "insufficient msg.value": {
+    title: "Insufficient value sent",
+    detail: "The amount sent did not cover the batch total. Nothing was sent - press Send again.",
+  },
   "msg.value != total": {
     title: "The batch total changed",
     detail: "The amount sent did not match the list that was signed. Nothing was sent - press Send again.",
