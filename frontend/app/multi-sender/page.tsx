@@ -54,6 +54,11 @@ export default function MultiSenderPage() {
     setAsset,
     tokenAddress,
     setTokenAddress,
+    nftStandard,
+    setNftStandard,
+    nftTokenId,
+    setNftTokenId,
+    nftApproved,
     token,
     symbol,
     decimals,
@@ -212,6 +217,10 @@ export default function MultiSenderPage() {
               onAdd={addRow}
               onApplyUniformAmount={applyUniformAmount}
               onBulkImport={() => setBulkImportOpen(true)}
+              asset={asset}
+              nftStandard={nftStandard}
+              nftTokenId={nftTokenId}
+              onNftTokenIdChange={setNftTokenId}
             />
           </div>
 
@@ -234,6 +243,8 @@ export default function MultiSenderPage() {
               onTokenAddressChange={setTokenAddress}
               token={token}
               disabled={sendBusy}
+              nftStandard={nftStandard}
+              onNftStandardChange={setNftStandard}
             />
 
             <SummaryCards
@@ -273,6 +284,9 @@ export default function MultiSenderPage() {
               contractAddress={contractAddress}
               busy={sendBusy}
               onSend={handleSend}
+              nftStandard={nftStandard}
+              nftApproved={nftApproved}
+              nftTokenId={nftTokenId}
             />
           </div>
         </div>

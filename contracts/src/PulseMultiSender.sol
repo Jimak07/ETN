@@ -3,11 +3,13 @@ pragma solidity 0.8.24;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title PulseMultiSender
- * @notice Sends ETN (or an ERC-20) to many recipients in one transaction.
+ * @notice Sends ETN, ERC-20, ERC-721 NFTs, or ERC-1155 editions to many recipients in one transaction.
  *
  * Design notes, because they are the product:
  *
@@ -26,15 +28,15 @@ contract PulseMultiSender is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /**
-     * @notice Maximum recipients accepted by one call.
-     *
-     * A rail, not a gas optimisation: an unbounded loop either runs out of gas
-     * mid-batch (reverting everything, after the signer has already paid for the
-     * signature) or, worse, is sized by whatever the caller pasted in. 200 token
-     * transfers is roughly 6-9M gas, which stays inside a conservative block gas
-     * limit; the UI splits larger lists into sequential batches.
+     * @notice Maximum recipients accepted by one native or ERC-20 call.
      */
     uint256 public constant MAX_BATCH_SIZE = 200;
+
+    /**
+     * @notice Maximum recipients accepted by one NFT (ERC-721 / ERC-1155) call.
+     * Capped at 100 due to recipient contract receiver checks (onERC721Received / onERC1155Received).
+     */
+    uint256 public constant MAX_NFT_BATCH_SIZE = 100;
 
     /// @notice Emitted once per native batch, in place of per-recipient logs.
     event NativeBatchSent(address indexed sender, uint256 recipientCount, uint256 totalAmount);
@@ -43,6 +45,22 @@ contract PulseMultiSender is ReentrancyGuard {
     event TokenBatchSent(
         address indexed sender,
         address indexed token,
+        uint256 recipientCount,
+        uint256 totalAmount
+    );
+
+    /// @notice Emitted once per ERC-721 NFT batch.
+    event ERC721BatchSent(
+        address indexed sender,
+        address indexed token,
+        uint256 recipientCount
+    );
+
+    /// @notice Emitted once per ERC-1155 multi-token edition batch.
+    event ERC1155BatchSent(
+        address indexed sender,
+        address indexed token,
+        uint256 indexed tokenId,
         uint256 recipientCount,
         uint256 totalAmount
     );
@@ -117,6 +135,70 @@ contract PulseMultiSender is ReentrancyGuard {
         }
 
         emit TokenBatchSent(msg.sender, token, count, total);
+    }
+
+    /**
+     * @notice Transfers distinct ERC-721 NFTs to multiple recipients in one transaction.
+     * @dev Caller must have approved this contract (e.g. via `setApprovalForAll`).
+     * Capped at `MAX_NFT_BATCH_SIZE` to keep gas usage well within block boundaries.
+     */
+    function batchSendERC721(
+        address tokenContract,
+        address[] calldata recipients,
+        uint256[] calldata tokenIds
+    ) external payable nonReentrant {
+        require(tokenContract != address(0), "zero token");
+        require(msg.value == 0, "no native value");
+
+        uint256 count = recipients.length;
+        require(count == tokenIds.length, "length mismatch");
+        require(count != 0, "empty batch");
+        require(count <= MAX_NFT_BATCH_SIZE, "batch too large");
+
+        IERC721 nft = IERC721(tokenContract);
+        for (uint256 i; i < count; ) {
+            require(recipients[i] != address(0), "zero recipient");
+            nft.safeTransferFrom(msg.sender, recipients[i], tokenIds[i]);
+            unchecked {
+                ++i;
+            }
+        }
+
+        emit ERC721BatchSent(msg.sender, tokenContract, count);
+    }
+
+    /**
+     * @notice Transfers multiple copies/editions of an ERC-1155 `tokenId` to recipients.
+     * @dev Caller must have approved this contract (e.g. via `setApprovalForAll`).
+     * Capped at `MAX_NFT_BATCH_SIZE`.
+     */
+    function batchSendERC1155(
+        address tokenContract,
+        uint256 tokenId,
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external payable nonReentrant {
+        require(tokenContract != address(0), "zero token");
+        require(msg.value == 0, "no native value");
+
+        uint256 count = recipients.length;
+        require(count == amounts.length, "length mismatch");
+        require(count != 0, "empty batch");
+        require(count <= MAX_NFT_BATCH_SIZE, "batch too large");
+
+        uint256 total;
+        IERC1155 nft = IERC1155(tokenContract);
+        for (uint256 i; i < count; ) {
+            require(recipients[i] != address(0), "zero recipient");
+            require(amounts[i] != 0, "zero amount");
+            total += amounts[i];
+            nft.safeTransferFrom(msg.sender, recipients[i], tokenId, amounts[i], "");
+            unchecked {
+                ++i;
+            }
+        }
+
+        emit ERC1155BatchSent(msg.sender, tokenContract, tokenId, count, total);
     }
 
     /**

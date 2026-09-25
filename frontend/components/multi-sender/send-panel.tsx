@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowLeftRight, ArrowUpRight, Loader2, Send, ShieldCheck, TriangleAlert, Wallet } from "lucide-react";
 
 import { GlassCard, SectionHeading } from "@/components/ui/glass-card";
-import type { AssetKind, TokenState } from "@/hooks/use-multi-sender";
+import type { AssetKind, NftStandard, TokenState } from "@/hooks/use-multi-sender";
 import { cn } from "@/lib/cn";
 import { DEFAULT_CHAIN_ID, getChainConfigOrDefault, type ChainConfig } from "@/lib/chains";
 import { explorerAddressUrl } from "@/lib/multi-sender/contract";
@@ -47,6 +47,9 @@ interface SendPanelProps {
   contractAddress: string | null;
   busy: boolean;
   onSend: () => void;
+  nftStandard?: NftStandard;
+  nftApproved?: boolean | null;
+  nftTokenId?: string;
 }
 
 export function SendPanel({
@@ -73,11 +76,17 @@ export function SendPanel({
   contractAddress,
   busy,
   onSend,
+  nftStandard,
+  nftApproved,
+  nftTokenId,
 }: SendPanelProps) {
   const reduceMotion = useReducedMotion();
   const shortfall = balance !== null && totalWei > balance ? totalWei - balance : 0n;
   const tokenReady = asset === "native" || token.address !== null;
-  const approvalNeeded = asset !== "native" && tokenReady && (token.allowance ?? 0n) < totalWei;
+  const approvalNeeded =
+    asset === "nft"
+      ? tokenReady && nftApproved === false
+      : asset !== "native" && tokenReady && (token.allowance ?? 0n) < totalWei;
 
   /**
    * Ordered by what the user has to do first. Whether a contract is configured
@@ -91,7 +100,7 @@ export function SendPanel({
         null
       : !configured
         ? `No batch sender contract is configured for ${chain.name}.`
-        : linklessAssetBlocker(asset, token)
+        : linklessAssetBlocker(asset, token, nftStandard, nftTokenId)
           ?? (rowCount === 0
             ? "Add at least one recipient."
             : invalidCount > 0
@@ -116,9 +125,11 @@ export function SendPanel({
           <dd className="num text-slate-300">{recipientCount}</dd>
         </div>
         <div className="flex items-center justify-between">
-          <dt className="text-slate-500">Total</dt>
+          <dt className="text-slate-500">{asset === "nft" && nftStandard === "erc721" ? "Total NFTs" : "Total"}</dt>
           <dd className="num text-slate-200">
-            {formatTokenAmount(totalWei, decimals, 6)} {symbol}
+            {asset === "nft" && nftStandard === "erc721"
+              ? `${recipientCount} ${symbol}`
+              : `${formatTokenAmount(totalWei, decimals, 6)} ${symbol}`}
           </dd>
         </div>
         <div className="flex items-center justify-between">
@@ -140,11 +151,17 @@ export function SendPanel({
       {approvalNeeded ? (
         <p className="mt-3 flex items-start gap-1.5 rounded-xl border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[0.68rem] leading-relaxed text-slate-400">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-cyan-400" />
-          <span>
-            <strong className="text-cyan-300 font-medium">Exact allowance only:</strong> Requests approval for exactly{" "}
-            <span className="num text-slate-200">{formatTokenAmount(totalWei, decimals, 4)} {symbol}</span>. No
-            infinite allowances are requested or left open.
-          </span>
+          {asset === "nft" ? (
+            <span>
+              <strong className="text-cyan-300 font-medium">NFT Operator Approval:</strong> You will be prompted to grant operator approval (<code className="text-cyan-200">setApprovalForAll</code>) to the multi-sender contract before sending.
+            </span>
+          ) : (
+            <span>
+              <strong className="text-cyan-300 font-medium">Exact allowance only:</strong> Requests approval for exactly{" "}
+              <span className="num text-slate-200">{formatTokenAmount(totalWei, decimals, 4)} {symbol}</span>. No
+              infinite allowances are requested or left open.
+            </span>
+          )}
         </p>
       ) : null}
 
@@ -259,9 +276,22 @@ export function SendPanel({
  * to the row and balance checks with `??`. Kept out of the component body purely
  * to stop the nested ternary above from becoming unreadable.
  */
-function linklessAssetBlocker(asset: AssetKind, token: TokenState): string | null {
+function linklessAssetBlocker(
+  asset: AssetKind,
+  token: TokenState,
+  nftStandard?: NftStandard,
+  nftTokenId?: string,
+): string | null {
   if (asset === "native") return null;
   if (token.error) return token.error;
-  if (!token.address) return "Enter the token contract address.";
+  if (!token.address) {
+    return asset === "nft" ? "Enter the NFT contract address." : "Enter the token contract address.";
+  }
+  if (asset === "nft" && nftStandard === "erc1155") {
+    const trimmedId = (nftTokenId ?? "").trim();
+    if (trimmedId.length === 0 || !/^\d+$/.test(trimmedId)) {
+      return "Enter a valid numeric Token ID for the ERC-1155 batch.";
+    }
+  }
   return null;
 }

@@ -31,12 +31,15 @@ interface AssetSelectorProps {
   onTokenAddressChange: (value: string) => void;
   token: TokenState;
   disabled?: boolean;
+  nftStandard?: "erc721" | "erc1155";
+  onNftStandardChange?: (standard: "erc721" | "erc1155") => void;
 }
 
 const OPTIONS: readonly { value: AssetKind; label: string }[] = [
   { value: "native", label: "Native coin" },
   { value: "popular", label: "Popular tokens" },
   { value: "custom", label: "Custom token" },
+  { value: "nft", label: "NFTs (ERC-721 / 1155)" },
 ];
 
 /** What the chain read produced: loading, a failure, or the resolved token. */
@@ -123,8 +126,8 @@ function TokenReadout({
         </div>
       ) : isCustom ? (
         <p className="text-[0.62rem] leading-relaxed text-slate-500">
-          ⚠️ Custom tokens are unverified. Please double-check the contract address on the block explorer to avoid
-          interacting with malicious or counterfeit contracts.
+          ⚠️ Custom tokens and collections are unverified. Please double-check the contract address on the block explorer to avoid
+          interacting with counterfeit contracts.
         </p>
       ) : null}
     </div>
@@ -139,6 +142,8 @@ export function AssetSelector({
   onTokenAddressChange,
   token,
   disabled = false,
+  nftStandard = "erc721",
+  onNftStandardChange,
 }: AssetSelectorProps) {
   const selectId = useId();
   const inputId = useId();
@@ -149,11 +154,11 @@ export function AssetSelector({
     <GlassCard className="overflow-visible p-5">
       <SectionHeading
         title="Asset"
-        subtitle="Native coin, a listed token, or any ERC-20 contract"
+        subtitle="Native coin, ERC-20 token, or NFT collection"
         icon={<Coins className="h-4 w-4" />}
       />
 
-      <div className="mt-4 grid grid-cols-3 gap-1 rounded-xl border border-slate-800 bg-slate-950/60 p-1">
+      <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950/60 p-1 sm:grid-cols-4">
         {OPTIONS.map((option) => (
           <button
             key={option.value}
@@ -264,6 +269,74 @@ export function AssetSelector({
         </div>
       ) : null}
 
+      {asset === "nft" ? (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label
+              htmlFor={inputId}
+              className="block text-[0.62rem] font-medium uppercase tracking-[0.16em] text-slate-500"
+            >
+              NFT Contract Address
+            </label>
+            <input
+              id={inputId}
+              value={tokenAddress}
+              onChange={(event) => onTokenAddressChange(event.target.value)}
+              disabled={disabled}
+              spellCheck={false}
+              placeholder="0x..."
+              className={cn(
+                "num mt-1 w-full rounded-xl border bg-slate-950/60 px-3 py-2.5 text-xs text-slate-200",
+                "placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/20",
+                token.error ? "border-status-offline/50" : "border-slate-800 focus:border-cyan-500/50",
+                "disabled:opacity-60",
+              )}
+            />
+          </div>
+
+          <div>
+            <span className="block text-[0.62rem] font-medium uppercase tracking-[0.16em] text-slate-500">
+              NFT Standard
+            </span>
+            <div className="mt-1 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950/40 p-1">
+              <button
+                type="button"
+                onClick={() => onNftStandardChange?.("erc721")}
+                disabled={disabled}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition",
+                  nftStandard === "erc721"
+                    ? "border border-cyan-500/40 bg-cyan-500/20 text-cyan-300"
+                    : "text-slate-400 hover:text-slate-200",
+                )}
+              >
+                ERC-721 (Unique NFTs)
+              </button>
+              <button
+                type="button"
+                onClick={() => onNftStandardChange?.("erc1155")}
+                disabled={disabled}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition",
+                  nftStandard === "erc1155"
+                    ? "border border-cyan-500/40 bg-cyan-500/20 text-cyan-300"
+                    : "text-slate-400 hover:text-slate-200",
+                )}
+              >
+                ERC-1155 (Multi-Token Editions)
+              </button>
+            </div>
+          </div>
+
+          <TokenReadout token={token} chain={chain} isCustom={true} />
+
+          <p className="text-[0.68rem] leading-relaxed text-slate-500">
+            {nftStandard === "erc721"
+              ? "ERC-721 mode: Specify recipient addresses and distinct Token IDs in the table below."
+              : "ERC-1155 mode: Enter the global Token ID above the table and set edition quantities per recipient."}
+          </p>
+        </div>
+      ) : null}
     </GlassCard>
   );
 }

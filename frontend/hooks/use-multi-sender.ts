@@ -5,6 +5,7 @@ import { getAddress, isAddress, type Address, type Hash } from "viem";
 
 import {
   FALLBACK_MAX_BATCH_SIZE,
+  FALLBACK_MAX_NFT_BATCH_SIZE,
   approveToken,
   describeSendError,
   getMultiSenderAddress,
@@ -16,11 +17,17 @@ import {
   pollExplorerReceiptStatus,
   readAllowance,
   readMaxBatchSize,
+  readMaxNftBatchSize,
   readNativeBalance,
+  readNftApprovalForAll,
+  readNftMetadata,
   readTokenBalance,
   readTokenMetadata,
+  sendERC1155Batch,
+  sendERC721Batch,
   sendNativeBatch,
   sendTokenBatch,
+  setNftApprovalForAll,
   waitForReceipt,
   type SendErrorCopy,
 } from "@/lib/multi-sender/contract";
@@ -49,12 +56,11 @@ import { getEthereumProvider, switchChain, type Eip1193Provider } from "@/lib/wa
 /**
  * What is being sent.
  *
- * Three kinds rather than a boolean, because "token" covers two very different
- * intents: picking one of the recognised tokens, where the address and decimals
- * are known before the user clicks, and pasting an arbitrary contract, where
- * they have to be read from the chain.
+ * Four kinds: native coin, curated popular tokens, custom ERC-20, or NFTs.
  */
-export type AssetKind = "native" | "popular" | "custom";
+export type AssetKind = "native" | "popular" | "custom" | "nft";
+
+export type NftStandard = "erc721" | "erc1155";
 
 /**
  * `signing`      -> the wallet is waiting for the user (approval or batch).
@@ -146,6 +152,9 @@ export function useMultiSender() {
 
   const [asset, setAsset] = useState<AssetKind>("native");
   const [tokenAddress, setTokenAddress] = useState("");
+  const [nftStandard, setNftStandard] = useState<NftStandard>("erc721");
+  const [nftTokenId, setNftTokenId] = useState("");
+  const [nftApproved, setNftApproved] = useState<boolean | null>(null);
 
   /**
    * A network change invalidates the asset selection.
@@ -158,6 +167,8 @@ export function useMultiSender() {
   useEffect(() => {
     setAsset("native");
     setTokenAddress("");
+    setNftTokenId("");
+    setNftApproved(null);
   }, [chainId]);
 
   const [nativeBalance, setNativeBalance] = useState<bigint | null>(null);
@@ -348,21 +359,24 @@ export function useMultiSender() {
   useEffect(() => {
     const client = getReadClient(chainId);
     if (!client) {
-      setMaxBatchSize(FALLBACK_MAX_BATCH_SIZE);
+      setMaxBatchSize(asset === "nft" ? FALLBACK_MAX_NFT_BATCH_SIZE : FALLBACK_MAX_BATCH_SIZE);
       return;
     }
 
     let cancelled = false;
 
     void (async () => {
-      const size = await readMaxBatchSize(client, chainId);
+      const size =
+        asset === "nft"
+          ? await readMaxNftBatchSize(client, chainId)
+          : await readMaxBatchSize(client, chainId);
       if (!cancelled) setMaxBatchSize(size);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [chainId]);
+  }, [chainId, asset]);
 
   // Token resolution, per asset kind. The address is what every branch keys on:
   // the `popular` path takes its symbol and decimals from the local list, which
@@ -375,12 +389,13 @@ export function useMultiSender() {
       setToken((previous) => ({
         ...previous,
         address: null,
-        symbol: "TOKEN",
+        symbol: asset === "nft" ? (nftStandard === "erc721" ? "NFT" : "ITEMS") : "TOKEN",
         balance: null,
         allowance: null,
         loading: false,
         error: null,
       }));
+      setNftApproved(null);
       return;
     }
 
@@ -394,6 +409,7 @@ export function useMultiSender() {
         loading: false,
         error: "That is not a valid contract address.",
       }));
+      setNftApproved(null);
       return;
     }
 
@@ -405,8 +421,9 @@ export function useMultiSender() {
         balance: null,
         allowance: null,
         loading: false,
-        error: `Switch to a supported network to read a token on ${chain.name}.`,
+        error: `Switch to a supported network to read on ${chain.name}.`,
       }));
+      setNftApproved(null);
       return;
     }
 
@@ -422,6 +439,7 @@ export function useMultiSender() {
         loading: false,
         error: `That token is not listed on ${chain.name}.`,
       }));
+      setNftApproved(null);
       return;
     }
 
@@ -430,13 +448,34 @@ export function useMultiSender() {
       ...previous,
       address: parsed,
       symbol: listed?.symbol ?? previous.symbol,
-      decimals: listed?.decimals ?? previous.decimals,
+      decimals: asset === "nft" ? 0 : listed?.decimals ?? previous.decimals,
       loading: true,
       error: null,
     }));
 
     void (async () => {
       try {
+        if (asset === "nft") {
+          const metadata = await readNftMetadata(client, parsed);
+          const isApproved =
+            account && contractAddress
+              ? await readNftApprovalForAll(client, parsed, account, contractAddress).catch(() => false)
+              : false;
+
+          if (cancelled) return;
+          setNftApproved(isApproved);
+          setToken({
+            address: parsed,
+            symbol: metadata.symbol || (nftStandard === "erc721" ? "NFT" : "ITEMS"),
+            decimals: 0,
+            balance: null,
+            allowance: isApproved ? 1n : 0n,
+            loading: false,
+            error: null,
+          });
+          return;
+        }
+
         const metadata = listed ?? (await readTokenMetadata(client, parsed));
         // The allowance is only meaningful once there is a spender to approve,
         // and that spender is the deployment for the connected chain.
@@ -460,14 +499,15 @@ export function useMultiSender() {
         });
       } catch {
         if (cancelled) return;
+        setNftApproved(null);
         setToken({
           address: parsed,
-          symbol: "TOKEN",
-          decimals: 18,
+          symbol: asset === "nft" ? (nftStandard === "erc721" ? "NFT" : "ITEMS") : "TOKEN",
+          decimals: asset === "nft" ? 0 : 18,
           balance: null,
           allowance: null,
           loading: false,
-          error: "Could not read that token. Check the address and the network.",
+          error: `Could not read that ${asset === "nft" ? "NFT contract" : "token"}. Check the address and the network.`,
         });
       }
     })();
@@ -475,7 +515,7 @@ export function useMultiSender() {
     return () => {
       cancelled = true;
     };
-  }, [asset, tokenAddress, account, chainId, contractAddress, chain.name]);
+  }, [asset, nftStandard, tokenAddress, account, chainId, contractAddress, chain.name]);
 
   const refreshToken = useCallback(async () => {
     if (!token.address || !account) return;
@@ -483,6 +523,13 @@ export function useMultiSender() {
     if (!client || !contractAddress) return;
 
     try {
+      if (asset === "nft") {
+        const isApproved = await readNftApprovalForAll(client, token.address, account, contractAddress);
+        setNftApproved(isApproved);
+        setToken((previous) => ({ ...previous, allowance: isApproved ? 1n : 0n }));
+        return;
+      }
+
       const [balance, allowance] = await Promise.all([
         readTokenBalance(client, token.address, account),
         readAllowance(client, token.address, account, contractAddress),
@@ -491,7 +538,7 @@ export function useMultiSender() {
     } catch {
       // Same reasoning as the native balance: keep the last good value.
     }
-  }, [account, chainId, contractAddress, token.address]);
+  }, [account, chainId, contractAddress, token.address, asset]);
 
   // --- sending --------------------------------------------------------------
 
@@ -541,10 +588,22 @@ export function useMultiSender() {
       const spendable = asset === "native" ? nativeBalance : token.balance;
 
       if (asset !== "native" && token.address === null) {
-        fail("No token selected", "Enter the token contract address before sending.");
+        fail(
+          asset === "nft" ? "No NFT contract selected" : "No token selected",
+          asset === "nft"
+            ? "Enter the NFT contract address before sending."
+            : "Enter the token contract address before sending.",
+        );
         return;
       }
-      if (spendable !== null && totalWei > spendable) {
+      if (asset === "nft" && nftStandard === "erc1155") {
+        const cleanTokenId = nftTokenId.trim();
+        if (!cleanTokenId || !/^\d+$/.test(cleanTokenId)) {
+          fail("Missing Token ID", "Enter a valid numeric Token ID for the ERC-1155 edition batch.");
+          return;
+        }
+      }
+      if (asset !== "nft" && spendable !== null && totalWei > spendable) {
         fail(
           "Insufficient balance",
           asset === "native"
@@ -674,7 +733,39 @@ export function useMultiSender() {
       };
 
       try {
-        if (asset !== "native" && token.address) {
+        if (asset === "nft" && token.address) {
+          const isApproved =
+            account && contractAddress
+              ? await readNftApprovalForAll(client, token.address, account, contractAddress).catch(() => false)
+              : false;
+
+          if (!isApproved) {
+            setProgress((previous) => ({
+              ...previous,
+              phase: "signing",
+              step: "approval",
+              batchIndex: 1,
+            }));
+            const approvalHash = await setNftApprovalForAll(wallet, chainId, token.address, true);
+            setProgress((previous) => ({
+              ...previous,
+              phase: "broadcasting",
+              step: "approval",
+              approvalHash,
+              hash: approvalHash,
+            }));
+
+            const approvalOutcome = await settle(
+              approvalHash,
+              "approval",
+              1,
+              "The NFT setApprovalForAll transaction reverted.",
+            );
+            if (approvalOutcome === "unconfirmed") return;
+            setNftApproved(true);
+            await refreshToken();
+          }
+        } else if (asset !== "native" && token.address) {
           const allowance = token.allowance ?? 0n;
 
           if (allowance < totalWei) {
@@ -732,7 +823,17 @@ export function useMultiSender() {
           const hash =
             asset === "native"
               ? await sendNativeBatch(wallet, chainId, batch)
-              : await sendTokenBatch(wallet, chainId, token.address as Address, batch);
+              : asset === "nft"
+                ? nftStandard === "erc721"
+                  ? await sendERC721Batch(wallet, chainId, token.address as Address, batch)
+                  : await sendERC1155Batch(
+                      wallet,
+                      chainId,
+                      token.address as Address,
+                      BigInt(nftTokenId.trim()),
+                      batch,
+                    )
+                : await sendTokenBatch(wallet, chainId, token.address as Address, batch);
 
           lastHash = hash;
           setProgress((previous) => ({
@@ -782,6 +883,8 @@ export function useMultiSender() {
       contractAddress,
       maxBatchSize,
       asset,
+      nftStandard,
+      nftTokenId,
       nativeBalance,
       provider,
       refreshNativeBalance,
@@ -802,8 +905,15 @@ export function useMultiSender() {
   const sendBusy = progress.phase === "signing" || progress.phase === "broadcasting";
 
   /** Everything the amount column and the totals are scaled by. */
-  const decimals = asset === "native" ? chain.nativeCurrency.decimals : token.decimals;
-  const symbol = asset === "native" ? chain.nativeCurrency.symbol : token.symbol;
+  const decimals = asset === "native" ? chain.nativeCurrency.decimals : asset === "nft" ? 0 : token.decimals;
+  const symbol =
+    asset === "native"
+      ? chain.nativeCurrency.symbol
+      : asset === "nft"
+        ? nftStandard === "erc721"
+          ? "NFT"
+          : "ITEMS"
+        : token.symbol;
   const spendableBalance = asset === "native" ? nativeBalance : token.balance;
 
   return {
@@ -822,6 +932,11 @@ export function useMultiSender() {
     setAsset,
     tokenAddress,
     setTokenAddress,
+    nftStandard,
+    setNftStandard,
+    nftTokenId,
+    setNftTokenId,
+    nftApproved,
     token,
     symbol,
     decimals,

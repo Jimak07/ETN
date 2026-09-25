@@ -90,6 +90,7 @@ export const hasAnyMultiSenderDeployment: boolean = Object.values(MULTISENDER_AD
 
 /** Mirrors the contract constant; the chain value wins when it can be read. */
 export const FALLBACK_MAX_BATCH_SIZE = 200;
+export const FALLBACK_MAX_NFT_BATCH_SIZE = 100;
 
 /**
  * How long to keep watching for a receipt before handing the user a manual check.
@@ -428,6 +429,25 @@ export async function readMaxBatchSize(
   }
 }
 
+export async function readMaxNftBatchSize(
+  client: PublicClient,
+  chainId: number | null | undefined,
+): Promise<number> {
+  const address = getMultiSenderAddress(chainId);
+  if (!address) return FALLBACK_MAX_NFT_BATCH_SIZE;
+
+  try {
+    const value = await client.readContract({
+      address,
+      abi: pulseMultiSenderAbi,
+      functionName: "MAX_NFT_BATCH_SIZE",
+    });
+    return value > 0n ? Number(value) : FALLBACK_MAX_NFT_BATCH_SIZE;
+  } catch {
+    return FALLBACK_MAX_NFT_BATCH_SIZE;
+  }
+}
+
 function requireAddress(chainId: number): Address {
   const address = getMultiSenderAddress(chainId);
   if (!address) {
@@ -469,6 +489,126 @@ export function sendTokenBatch(
     functionName: "batchSendERC20",
     args: [token, batch.recipients, batch.amounts],
   });
+}
+
+export function sendERC721Batch(
+  wallet: EtnWalletClient,
+  chainId: number,
+  token: Address,
+  batch: RecipientBatch,
+): Promise<Hash> {
+  return wallet.writeContract({
+    address: requireAddress(chainId),
+    abi: pulseMultiSenderAbi,
+    functionName: "batchSendERC721",
+    args: [token, batch.recipients, batch.amounts],
+  });
+}
+
+export function sendERC1155Batch(
+  wallet: EtnWalletClient,
+  chainId: number,
+  token: Address,
+  tokenId: bigint,
+  batch: RecipientBatch,
+): Promise<Hash> {
+  return wallet.writeContract({
+    address: requireAddress(chainId),
+    abi: pulseMultiSenderAbi,
+    functionName: "batchSendERC1155",
+    args: [token, tokenId, batch.recipients, batch.amounts],
+  });
+}
+
+export const nftApprovalAbi = [
+  {
+    inputs: [
+      { internalType: "address", name: "owner", type: "address" },
+      { internalType: "address", name: "operator", type: "address" },
+    ],
+    name: "isApprovedForAll",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "operator", type: "address" },
+      { internalType: "bool", name: "approved", type: "bool" },
+    ],
+    name: "setApprovalForAll",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "name",
+    outputs: [{ internalType: "string", name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "symbol",
+    outputs: [{ internalType: "string", name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
+export function readNftApprovalForAll(
+  client: PublicClient,
+  token: Address,
+  owner: Address,
+  operator: Address,
+): Promise<boolean> {
+  return client.readContract({
+    address: token,
+    abi: nftApprovalAbi,
+    functionName: "isApprovedForAll",
+    args: [owner, operator],
+  });
+}
+
+export function setNftApprovalForAll(
+  wallet: EtnWalletClient,
+  chainId: number,
+  token: Address,
+  approved = true,
+): Promise<Hash> {
+  return wallet.writeContract({
+    address: token,
+    abi: nftApprovalAbi,
+    functionName: "setApprovalForAll",
+    args: [requireAddress(chainId), approved],
+  });
+}
+
+export async function readNftMetadata(
+  client: PublicClient,
+  token: Address,
+): Promise<TokenMetadata> {
+  const [name, symbol] = await Promise.all([
+    client
+      .readContract({ address: token, abi: nftApprovalAbi, functionName: "name" })
+      .catch(() => "" as const),
+    client
+      .readContract({ address: token, abi: nftApprovalAbi, functionName: "symbol" })
+      .catch(() => "" as const),
+  ]);
+
+  const display =
+    typeof symbol === "string" && symbol.length > 0
+      ? symbol
+      : typeof name === "string" && name.length > 0
+        ? name
+        : "NFT";
+
+  return {
+    symbol: display,
+    decimals: 0,
+  };
 }
 
 export function approveToken(

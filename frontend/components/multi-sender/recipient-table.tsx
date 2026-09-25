@@ -57,6 +57,10 @@ interface RecipientTableProps {
   onAdd: () => void;
   onApplyUniformAmount: (amount: string) => void;
   onBulkImport: () => void;
+  asset?: "native" | "popular" | "custom" | "nft";
+  nftStandard?: "erc721" | "erc1155";
+  nftTokenId?: string;
+  onNftTokenIdChange?: (id: string) => void;
 }
 
 export function RecipientTable({
@@ -70,9 +74,14 @@ export function RecipientTable({
   onAdd,
   onApplyUniformAmount,
   onBulkImport,
+  asset = "native",
+  nftStandard = "erc721",
+  nftTokenId = "",
+  onNftTokenIdChange,
 }: RecipientTableProps) {
   const [uniform, setUniform] = useState("");
   const uniformId = useId();
+  const nftGlobalId = useId();
 
   const applyUniform = () => {
     if (rows.length === 0 || uniform.trim().length === 0) return;
@@ -82,11 +91,26 @@ export function RecipientTable({
   /** At the ceiling the table stops growing, whatever the route in. */
   const atCap = rows.length >= MAX_RECIPIENT_ROWS;
 
+  const isErc721 = asset === "nft" && nftStandard === "erc721";
+  const isErc1155 = asset === "nft" && nftStandard === "erc1155";
+
+  const columnLabel = isErc721
+    ? "Token ID"
+    : isErc1155
+      ? "Quantity"
+      : `Amount (${symbol})`;
+
   return (
     <GlassCard className="p-5">
       <SectionHeading
         title="Recipients"
-        subtitle="One row per wallet, validated as you type"
+        subtitle={
+          isErc721
+            ? "One row per wallet and NFT Token ID"
+            : isErc1155
+              ? "One row per wallet and edition quantity"
+              : "One row per wallet, validated as you type"
+        }
         icon={<Users className="h-4 w-4" />}
         action={
           <button
@@ -112,48 +136,69 @@ export function RecipientTable({
         className="mt-4"
       />
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
-        <Wand2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-        <label htmlFor={uniformId} className="text-[0.68rem] font-medium text-slate-400">
-          Apply uniform amount
-        </label>
-        <input
-          id={uniformId}
-          value={uniform}
-          onChange={(event) => setUniform(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && canApplyUniform) {
-              event.preventDefault();
-              applyUniform();
-            }
-          }}
-          disabled={disabled}
-          inputMode="decimal"
-          placeholder="0.00"
-          className={cn(
-            "num w-24 rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-1 text-xs text-slate-200",
-            "placeholder:text-slate-600 focus:border-cyan-500/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/20",
-            "disabled:opacity-60",
-          )}
-        />
-        <span className="num text-[0.62rem] text-slate-500">{symbol}</span>
-        <button
-          type="button"
-          onClick={applyUniform}
-          disabled={!canApplyUniform}
-          className={cn(
-            "rounded-lg border px-2.5 py-1 text-[0.68rem] font-medium transition",
-            canApplyUniform
-              ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20"
-              : "cursor-not-allowed border-slate-800 text-slate-600",
-          )}
-        >
-          Apply to all
-        </button>
-        <span className={cn("num ml-auto text-[0.68rem]", atCap ? "text-status-degraded" : "text-slate-500")}>
-          {rows.length} row{rows.length === 1 ? "" : "s"} of {MAX_RECIPIENT_ROWS} · {decimals} decimals
-        </span>
-      </div>
+      {isErc1155 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.06] p-3 text-xs">
+          <label htmlFor={nftGlobalId} className="font-semibold text-cyan-300">
+            ERC-1155 Token ID:
+          </label>
+          <input
+            id={nftGlobalId}
+            value={nftTokenId}
+            onChange={(event) => onNftTokenIdChange?.(event.target.value)}
+            disabled={disabled}
+            placeholder="e.g. 1"
+            className="num w-28 rounded-lg border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-xs text-slate-100 placeholder:text-slate-600 focus:border-cyan-500 focus:outline-none"
+          />
+          <span className="text-[0.68rem] text-slate-400">
+            Every recipient below will receive their specified quantity of this Token ID edition.
+          </span>
+        </div>
+      ) : null}
+
+      {!isErc721 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+          <Wand2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+          <label htmlFor={uniformId} className="text-[0.68rem] font-medium text-slate-400">
+            {isErc1155 ? "Apply uniform quantity" : "Apply uniform amount"}
+          </label>
+          <input
+            id={uniformId}
+            value={uniform}
+            onChange={(event) => setUniform(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && canApplyUniform) {
+                event.preventDefault();
+                applyUniform();
+              }
+            }}
+            disabled={disabled}
+            inputMode="decimal"
+            placeholder={isErc1155 ? "1" : "0.00"}
+            className={cn(
+              "num w-24 rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-1 text-xs text-slate-200",
+              "placeholder:text-slate-600 focus:border-cyan-500/50 focus:outline-none focus:ring-2 focus:ring-cyan-500/20",
+              "disabled:opacity-60",
+            )}
+          />
+          <span className="num text-[0.62rem] text-slate-500">{symbol}</span>
+          <button
+            type="button"
+            onClick={applyUniform}
+            disabled={!canApplyUniform}
+            className={cn(
+              "rounded-lg border px-2.5 py-1 text-[0.68rem] font-medium transition",
+              canApplyUniform
+                ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20"
+                : "cursor-not-allowed border-slate-800 text-slate-600",
+            )}
+          >
+            Apply to all
+          </button>
+          <span className={cn("num ml-auto text-[0.68rem]", atCap ? "text-status-degraded" : "text-slate-500")}>
+            {rows.length} row{rows.length === 1 ? "" : "s"} of {MAX_RECIPIENT_ROWS} · {decimals} decimals
+          </span>
+        </div>
+      ) : null}
 
       <div className="mt-2 max-h-[28rem] overflow-auto rounded-xl border border-slate-800">
         <table className="w-full min-w-[34rem] border-collapse text-left">
@@ -166,7 +211,7 @@ export function RecipientTable({
                 Wallet address
               </th>
               <th scope="col" className="w-32 px-2 py-2 font-medium">
-                Amount ({symbol})
+                {columnLabel}
               </th>
               <th scope="col" className="w-12 px-2 py-2">
                 <span className="sr-only">Remove</span>
@@ -238,9 +283,15 @@ export function RecipientTable({
                       value={draft.amount}
                       onChange={(event) => onUpdate(draft.id, "amount", event.target.value)}
                       disabled={disabled}
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      aria-label={`Amount, row ${index + 1}`}
+                      inputMode={asset === "nft" ? "numeric" : "decimal"}
+                      placeholder={asset === "nft" ? "1" : "0.00"}
+                      aria-label={
+                        isErc721
+                          ? `Token ID, row ${index + 1}`
+                          : isErc1155
+                            ? `Quantity, row ${index + 1}`
+                            : `Amount, row ${index + 1}`
+                      }
                       aria-invalid={amountInvalid}
                       className={cn(
                         "num w-full rounded-lg border bg-slate-950/60 px-2.5 py-1.5 text-xs text-slate-200",
