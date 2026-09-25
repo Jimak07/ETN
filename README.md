@@ -418,25 +418,36 @@ browser-side validation dashboard, so a malformed list never reaches the network
 
 ### Networks
 
-The module is multi-chain. Both Electroneum networks are described in `frontend/lib/etn.ts` and
-projected into viem chains in `frontend/lib/etn-chain.ts`:
+The module is multi-chain. `frontend/lib/chains.ts` is the registry that the network selector, the
+asset picker and the explorer links all read, so one record per network feeds the wallet payload,
+the viem chain, the block explorer and the token list without any of them drifting apart:
 
 | Network | Chain id | Native | Explorer |
 | --- | --- | --- | --- |
 | Electroneum Mainnet | `52014` (`0xcb2e`) | ETN | https://blockexplorer.electroneum.com |
 | Electroneum Testnet | `5201420` (`0x4f5e0c`) | ETN | https://testnet-blockexplorer.electroneum.com |
+| Ethereum | `1` (`0x1`) | ETH | https://etherscan.io |
+| BNB Smart Chain | `56` (`0x38`) | BNB | https://bscscan.com |
 
 The deployment address is resolved from the connected wallet's chain rather than from one global
 constant, because an address is only meaningful on the chain it was deployed to:
 
 ```bash
-NEXT_PUBLIC_MULTISENDER_MAINNET=0x...    # used when chainId === 52014
-NEXT_PUBLIC_MULTISENDER_TESTNET=0x...    # used when chainId === 5201420
+NEXT_PUBLIC_MULTISENDER_MAINNET=0x...     # used when chainId === 52014
+NEXT_PUBLIC_MULTISENDER_TESTNET=0x...     # used when chainId === 5201420
+NEXT_PUBLIC_MULTISENDER_ETHEREUM=0x...    # used when chainId === 1
+NEXT_PUBLIC_MULTISENDER_BSC=0x...         # used when chainId === 56
 ```
+
+Only the two Electroneum networks have a deployment today, so Ethereum and BNB Smart Chain appear in
+the selector, validate rows and price the batch in their own native coin, but report "no batch
+sender contract configured" until one is deployed. Their RPCs (`NEXT_PUBLIC_ETHEREUM_RPC`,
+`NEXT_PUBLIC_BSC_RPC`) and explorer API keys (`NEXT_PUBLIC_ETHERSCAN_API_KEY`,
+`NEXT_PUBLIC_BSCSCAN_API_KEY`) fall back to public defaults, so nothing is required to run the app.
 
 `NEXT_PUBLIC_MULTISENDER_ADDRESS` is still read as the mainnet value, so deployments made before
 testnet support keep working. A network with no address configured still parses and validates lists
-and reports the expected totals - it just cannot send, and says why. On Vercel both variables are
+and reports the expected totals - it just cannot send, and says why. On Vercel all of these are
 build-time: set them in the project's environment settings and redeploy, or the page ships with
 sending disabled.
 
@@ -444,11 +455,12 @@ Reads are chain-scoped too. Balances, token metadata and allowances come from th
 RPC, and an unsupported chain yields no client at all rather than quietly falling back to mainnet -
 a mainnet balance shown beside a testnet wallet is the kind of stale number that gets a batch sent.
 
-Connecting never moves the wallet. On an unsupported network the Send button is replaced by one
-*Switch to ...* button per supported network, because the app cannot know whether a given batch is a
-real airdrop or a rehearsal and guessing wrong means sending real ETN. For the same reason the active
-network appears in the header badge and in the send panel, a testnet run raises an amber banner, and
-transaction links follow the chain the batch was signed on. The testnet RPC defaults to
+Connecting never moves the wallet. The network selector reports the chain the wallet holds and asks
+the wallet to move; on an unsupported network the Send button is replaced outright, because the app
+cannot know whether a given batch is a real airdrop or a rehearsal and guessing wrong means sending
+real ETN. For the same reason the active network appears in the header badge and in the send panel,
+a testnet run raises an amber banner, and transaction links follow the chain the batch was signed on.
+The testnet RPC defaults to
 `https://rpc-testnet.electroneum.com`; override it with `NEXT_PUBLIC_ETN_TESTNET_RPC` if it moves.
 
 ### Contract
@@ -488,14 +500,30 @@ so neither URL has to be remembered.
 
 ### Frontend
 
-- **Input** — drag-and-drop CSV upload (2MB cap) or a paste area, both feeding one parser. A sample
-  list with a deliberately invalid row is one click away.
-- **Validation dashboard** — every row is parsed in the browser and problems surface immediately.
-  Malformed or bad-checksum addresses are red; missing, zero or over-precise amounts are red;
-  duplicate recipients and self-transfers are amber warnings that do not block a send.
-- **Summary cards** — total addresses, total to send and the connected wallet's balance, with a
-  shortfall hint when the batch exceeds it. ERC-20 mode is driven by the token address, and an
-  allowance below the batch total triggers an exact-amount approval first.
+- **Network and asset** — a network dropdown across the four supported chains, and a three-way asset
+  toggle: native coin (the default, and it hides the contract field because there is no address to
+  give), a listed token from the local `POPULAR_TOKENS` map, or any ERC-20 contract. The first two
+  know their `decimals` before the click; the third reads `symbol()` and `decimals()` from the chain,
+  because guessing decimals mis-scales every amount in the batch. Switching network resets the
+  toggle to the native coin, so a token address picked on Ethereum cannot ride along to another chain.
+  Electroneum has no entry in that map on purpose - a plausible-looking address that does not exist
+  would send funds nowhere - so its *Popular tokens* tab says so and points at Custom.
+- **Recipient table** — one row per wallet with a live `isAddress` check, an auto-incrementing index,
+  a per-row delete and an *Add recipient* button. Rows are never reordered and never dropped, so a
+  row cannot move out from under the cursor while it is being typed.
+- **Batch utilities** — *Apply uniform amount* fills every row at once, and *Bulk import* opens a
+  modal taking a pasted list or a dropped CSV (2MB cap) that previews how many rows are ready against
+  how many need attention, then either appends to or replaces the table. A sample list with a
+  deliberately invalid row is one click away.
+- **Validation** — problems surface as they are typed: malformed or bad-checksum addresses get a red
+  border, missing, zero or over-precise amounts are flagged on the amount cell, and duplicate
+  recipients and self-transfers are amber warnings that do not block a send. A row that has not been
+  filled in yet stays neutral rather than being marked as an error.
+- **Summary cards** — total recipients, total to send and the connected wallet's balance, with a
+  shortfall hint when the batch exceeds it. Any invalid row blocks the whole send: a batch is
+  all-or-nothing on chain, so a list with a bad row is fixed rather than quietly trimmed. ERC-20 mode
+  is driven by the token address, and an allowance below the batch total triggers an exact-amount
+  approval first.
 - **Send flow** — viem `writeContract` behind a status modal walking through *Approving* (tokens
   only), *Awaiting signature*, *Broadcasting* and *Confirmed*, then a confetti burst and a
   block-explorer link. Batches beyond `MAX_BATCH_SIZE` are chunked client-side, and the modal names

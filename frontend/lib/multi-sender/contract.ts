@@ -17,15 +17,9 @@ import {
   type TransactionReceipt,
 } from "viem";
 
+import { BNB_SMART_CHAIN, ETHEREUM, getChainConfig, getChainConfigOrDefault } from "@/lib/chains";
 import { getViemChain, getViemChainOrDefault } from "@/lib/etn-chain";
-import {
-  ETN_MAINNET,
-  ETN_NATIVE_DECIMALS,
-  ETN_TESTNET,
-  RPC_REQUEST_TIMEOUT_MS,
-  getEtnChain,
-  getEtnChainOrDefault,
-} from "@/lib/etn";
+import { ETN_MAINNET, ETN_NATIVE_DECIMALS, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS } from "@/lib/etn";
 import type { Eip1193Provider } from "@/lib/wallet";
 
 import { pulseMultiSenderAbi } from "./abi";
@@ -65,13 +59,17 @@ function parseAddress(raw: string | undefined): Address | null {
  * means nothing on testnet, so the mapping is keyed by chain id and resolved at
  * call time from the connected wallet's chain. `NEXT_PUBLIC_MULTISENDER_ADDRESS`
  * is still honoured as the mainnet value so deployments made before testnet
- * support keep working without a rename.
+ * support keep working without a rename. Ethereum and BNB Smart Chain are listed
+ * even though no deployment exists for them by default: the panel then says so,
+ * which is more honest than a dropdown that quietly cannot send.
  */
 export const MULTISENDER_ADDRESSES: Readonly<Record<number, Address | null>> = {
   [ETN_MAINNET.id]: parseAddress(
     process.env.NEXT_PUBLIC_MULTISENDER_MAINNET ?? process.env.NEXT_PUBLIC_MULTISENDER_ADDRESS,
   ),
   [ETN_TESTNET.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_TESTNET),
+  [ETHEREUM.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_ETHEREUM),
+  [BNB_SMART_CHAIN.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_BSC),
 };
 
 /** Deployment address for a chain, or null when that network has none configured. */
@@ -156,11 +154,11 @@ export const MULTI_SENDER_ABI = pulseMultiSenderAbi;
  * explorer is used for display purposes only.
  */
 export function explorerTxUrl(chainId: number | null | undefined, hash: string): string {
-  return `${getEtnChainOrDefault(chainId).explorerUrl}/tx/${hash}`;
+  return `${getChainConfigOrDefault(chainId).explorerUrl}/tx/${hash}`;
 }
 
 export function explorerAddressUrl(chainId: number | null | undefined, address: string): string {
-  return `${getEtnChainOrDefault(chainId).explorerUrl}/address/${address}`;
+  return `${getChainConfigOrDefault(chainId).explorerUrl}/address/${address}`;
 }
 
 // --- explorer API -----------------------------------------------------------
@@ -178,7 +176,7 @@ export function explorerAddressUrl(chainId: number | null | undefined, address: 
  *   testnet (5201420) -> https://testnet-blockexplorer.electroneum.com/api
  */
 export function explorerApiBaseUrl(chainId: number | null | undefined): string {
-  return getEtnChainOrDefault(chainId).explorerApiUrl;
+  return getChainConfigOrDefault(chainId).explorerApiUrl;
 }
 
 /**
@@ -192,7 +190,15 @@ export function explorerReceiptStatusUrl(
   chainId: number | null | undefined,
   txHash: string,
 ): string {
-  return `${explorerApiBaseUrl(chainId)}?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`;
+  const chain = getChainConfigOrDefault(chainId);
+  const query = `?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`;
+
+  // Etherscan-family explorers (Ethereum, BNB Smart Chain) require a key for
+  // this endpoint while the Electroneum explorers ignore the parameter, so it is
+  // appended only when the chain has one configured.
+  return chain.explorerApiKey
+    ? `${chain.explorerApiUrl}${query}&apikey=${chain.explorerApiKey}`
+    : `${chain.explorerApiUrl}${query}`;
 }
 
 /** What the explorer is able to say about a transaction. */
@@ -294,7 +300,7 @@ export function getReadClient(chainId: number | null | undefined): PublicClient 
   const cached = readClients.get(chainId);
   if (cached) return cached;
 
-  const chain = getEtnChain(chainId);
+  const chain = getChainConfig(chainId);
   const viemChain = getViemChain(chainId);
   if (!chain || !viemChain) return null;
 

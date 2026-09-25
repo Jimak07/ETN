@@ -5,7 +5,6 @@ import { getAddress, isAddress, type Address, type Hash } from "viem";
 
 import {
   FALLBACK_MAX_BATCH_SIZE,
-  NATIVE_DECIMALS,
   approveToken,
   describeSendError,
   getMultiSenderAddress,
@@ -27,13 +26,14 @@ import {
 } from "@/lib/multi-sender/contract";
 import { planBatches, type RecipientRow } from "@/lib/multi-sender/parse";
 import {
-  DEFAULT_ETN_CHAIN,
-  ETN_TESTNET,
-  getEtnChainOrDefault,
-  isSupportedEtnChain,
-  type EtnChainConfig,
-} from "@/lib/etn";
-import { getEthereumProvider, switchEtnChain, type Eip1193Provider } from "@/lib/wallet";
+  DEFAULT_CHAIN_ID,
+  SUPPORTED_CHAINS,
+  findPopularToken,
+  getChainConfigOrDefault,
+  isSupportedChain,
+  type ChainConfig,
+} from "@/lib/chains";
+import { getEthereumProvider, switchChain, type Eip1193Provider } from "@/lib/wallet";
 
 /**
  * Wallet + send state machine for the batch sender.
@@ -46,7 +46,15 @@ import { getEthereumProvider, switchEtnChain, type Eip1193Provider } from "@/lib
  * run resumable and reportable instead of a fire-and-forget loop in a component.
  */
 
-export type SendMode = "native" | "erc20";
+/**
+ * What is being sent.
+ *
+ * Three kinds rather than a boolean, because "token" covers two very different
+ * intents: picking one of the recognised tokens, where the address and decimals
+ * are known before the user clicks, and pasting an arbitrary contract, where
+ * they have to be read from the chain.
+ */
+export type AssetKind = "native" | "popular" | "custom";
 
 /**
  * `signing`      -> the wallet is waiting for the user (approval or batch).
@@ -136,8 +144,21 @@ export function useMultiSender() {
   const [switching, setSwitching] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<SendMode>("native");
-  const [tokenInput, setTokenInput] = useState("");
+  const [asset, setAsset] = useState<AssetKind>("native");
+  const [tokenAddress, setTokenAddress] = useState("");
+
+  /**
+   * A network change invalidates the asset selection.
+   *
+   * A token address means nothing across chains - the same string is a different
+   * contract elsewhere, or no contract at all - so the picker falls back to the
+   * native coin rather than letting the old address be re-interpreted on the new
+   * chain. Amounts already typed are left alone: those are the user's numbers.
+   */
+  useEffect(() => {
+    setAsset("native");
+    setTokenAddress("");
+  }, [chainId]);
 
   const [nativeBalance, setNativeBalance] = useState<bigint | null>(null);
   const [token, setToken] = useState<TokenState>({
@@ -165,9 +186,9 @@ export function useMultiSender() {
 
   // Only a chain this app can actually act on counts as "ok": a wallet parked on
   // some unrelated EVM network is a blocking state, not an implicit mainnet.
-  const chainOk = isSupportedEtnChain(chainId);
+  const chainOk = isSupportedChain(chainId);
   /** Descriptor for the live chain, or mainnet as a display placeholder. */
-  const chain: EtnChainConfig = getEtnChainOrDefault(chainId);
+  const chain: ChainConfig = getChainConfigOrDefault(chainId);
   /** Deployment address for the connected chain, resolved per render. */
   const contractAddress = getMultiSenderAddress(chainId);
   const configured = isMultiSenderConfigured(chainId);
@@ -261,7 +282,7 @@ export function useMultiSender() {
    * `chainChanged` event is missing on some wallets.
    */
   const switchTo = useCallback(
-    async (target: number = DEFAULT_ETN_CHAIN.id) => {
+    async (target: number = DEFAULT_CHAIN_ID) => {
       setConnectionError(null);
       const injected = provider ?? getEthereumProvider();
 
@@ -272,7 +293,7 @@ export function useMultiSender() {
 
       setSwitching(true);
       try {
-        const result = await switchEtnChain(injected, target);
+        const result = await switchChain(injected, target);
         if (!result.ok) {
           setConnectionError(result.message);
           return;
@@ -343,11 +364,13 @@ export function useMultiSender() {
     };
   }, [chainId]);
 
-  // Token metadata follows the pasted address; it is deliberately read before
-  // any balance, because `decimals` decides how every amount in the list is
-  // scaled and a wrong scale would misprice the whole batch.
+  // Token resolution, per asset kind. The address is what every branch keys on:
+  // the `popular` path takes its symbol and decimals from the local list, which
+  // is what makes it one click, while `custom` reads them from the contract
+  // itself - `decimals` decides how every amount in the table is scaled, and
+  // guessing it is the most expensive mistake this tool could make.
   useEffect(() => {
-    const trimmed = tokenInput.trim();
+    const trimmed = tokenAddress.trim();
     if (trimmed.length === 0) {
       setToken((previous) => ({
         ...previous,
@@ -382,17 +405,39 @@ export function useMultiSender() {
         balance: null,
         allowance: null,
         loading: false,
-        error: "Switch to an Electroneum network to read this token.",
+        error: `Switch to a supported network to read a token on ${chain.name}.`,
+      }));
+      return;
+    }
+
+    // Listed tokens are trusted for symbol and decimals; anything else is read
+    // from the contract below.
+    const listed = asset === "popular" ? findPopularToken(chainId, parsed) : null;
+    if (asset === "popular" && !listed) {
+      setToken((previous) => ({
+        ...previous,
+        address: null,
+        balance: null,
+        allowance: null,
+        loading: false,
+        error: `That token is not listed on ${chain.name}.`,
       }));
       return;
     }
 
     let cancelled = false;
-    setToken((previous) => ({ ...previous, address: parsed, loading: true, error: null }));
+    setToken((previous) => ({
+      ...previous,
+      address: parsed,
+      symbol: listed?.symbol ?? previous.symbol,
+      decimals: listed?.decimals ?? previous.decimals,
+      loading: true,
+      error: null,
+    }));
 
     void (async () => {
       try {
-        const metadata = await readTokenMetadata(client, parsed);
+        const metadata = listed ?? (await readTokenMetadata(client, parsed));
         // The allowance is only meaningful once there is a spender to approve,
         // and that spender is the deployment for the connected chain.
         const [balance, allowance] =
@@ -430,7 +475,7 @@ export function useMultiSender() {
     return () => {
       cancelled = true;
     };
-  }, [tokenInput, account, chainId, contractAddress]);
+  }, [asset, tokenAddress, account, chainId, contractAddress, chain.name]);
 
   const refreshToken = useCallback(async () => {
     if (!token.address || !account) return;
@@ -469,7 +514,9 @@ export function useMultiSender() {
       if (!chainOk) {
         fail(
           "Wrong network",
-          `Switch your wallet to ${DEFAULT_ETN_CHAIN.name} or ${ETN_TESTNET.name} before sending a batch.`,
+          `Switch your wallet to a supported network (${SUPPORTED_CHAINS.map((option) => option.name).join(
+            ", ",
+          )}) before sending a batch.`,
         );
         return;
       }
@@ -491,16 +538,16 @@ export function useMultiSender() {
 
       const totalWei = batches.reduce((sum, batch) => sum + batch.totalWei, 0n);
       const recipientCount = batches.reduce((sum, batch) => sum + batch.recipients.length, 0);
-      const spendable = mode === "native" ? nativeBalance : token.balance;
+      const spendable = asset === "native" ? nativeBalance : token.balance;
 
-      if (mode === "erc20" && token.address === null) {
+      if (asset !== "native" && token.address === null) {
         fail("No token selected", "Enter the token contract address before sending.");
         return;
       }
       if (spendable !== null && totalWei > spendable) {
         fail(
           "Insufficient balance",
-          mode === "native"
+          asset === "native"
             ? "The batch plus gas costs more than this wallet holds."
             : `This wallet does not hold ${token.symbol} enough to cover the batch.`,
         );
@@ -520,7 +567,7 @@ export function useMultiSender() {
       setProgress({
         ...IDLE_PROGRESS,
         phase: "signing",
-        step: mode === "erc20" ? "approval" : "batch",
+        step: asset !== "native" ? "approval" : "batch",
         batchIndex: 1,
         batchCount: batches.length,
         recipientCount,
@@ -627,7 +674,7 @@ export function useMultiSender() {
       };
 
       try {
-        if (mode === "erc20" && token.address) {
+        if (asset !== "native" && token.address) {
           const allowance = token.allowance ?? 0n;
 
           if (allowance < totalWei) {
@@ -669,7 +716,7 @@ export function useMultiSender() {
           }));
 
           const hash =
-            mode === "native"
+            asset === "native"
               ? await sendNativeBatch(wallet, chainId, batch)
               : await sendTokenBatch(wallet, chainId, token.address as Address, batch);
 
@@ -720,7 +767,7 @@ export function useMultiSender() {
       configured,
       contractAddress,
       maxBatchSize,
-      mode,
+      asset,
       nativeBalance,
       provider,
       refreshNativeBalance,
@@ -740,8 +787,10 @@ export function useMultiSender() {
 
   const sendBusy = progress.phase === "signing" || progress.phase === "broadcasting";
 
-  const decimals = mode === "native" ? NATIVE_DECIMALS : token.decimals;
-  const spendableBalance = mode === "native" ? nativeBalance : token.balance;
+  /** Everything the amount column and the totals are scaled by. */
+  const decimals = asset === "native" ? chain.nativeCurrency.decimals : token.decimals;
+  const symbol = asset === "native" ? chain.nativeCurrency.symbol : token.symbol;
+  const spendableBalance = asset === "native" ? nativeBalance : token.balance;
 
   return {
     provider,
@@ -755,11 +804,12 @@ export function useMultiSender() {
     connecting,
     connectionError,
     connect,
-    mode,
-    setMode,
-    tokenInput,
-    setTokenInput,
+    asset,
+    setAsset,
+    tokenAddress,
+    setTokenAddress,
     token,
+    symbol,
     decimals,
     spendableBalance,
     nativeBalance,

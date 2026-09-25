@@ -55,6 +55,75 @@ export interface ParseOptions {
   selfAddress?: string | null;
 }
 
+/** One editable row of the recipient table, as typed. */
+export interface RecipientDraft {
+  /** Stable client-side key for React; never sent anywhere. */
+  id: string;
+  address: string;
+  amount: string;
+}
+
+/** A validated draft, carrying its key so the table can render the row. */
+export interface DraftRow extends RecipientRow {
+  id: string;
+  /**
+   * True when both fields are blank.
+   *
+   * A pristine row is incomplete rather than wrong, and the two deserve
+   * different treatment: nothing has been typed yet, so colouring it red would
+   * mark a form as broken the moment it is opened.
+   */
+  pristine: boolean;
+}
+
+export interface ParsedTable {
+  /** Every row, in table order, valid or not. */
+  drafts: DraftRow[];
+  /** The sendable rows, in table order - what `planBatches` consumes. */
+  valid: DraftRow[];
+  /** Rows carrying a real problem: bad address, missing or zero amount. */
+  issueCount: number;
+  /** Rows with nothing filled in yet. */
+  blankCount: number;
+  duplicateCount: number;
+  selfTransferCount: number;
+  /** Sum of the valid rows only. */
+  totalWei: bigint;
+}
+
+/** Mutable counters shared by both parsers, so the rules live in one place. */
+interface RowTally {
+  duplicateCount: number;
+  selfTransferCount: number;
+  totalWei: bigint;
+  grossWei: bigint;
+}
+
+/**
+ * Records a finished row's contribution.
+ *
+ * Extracted because the pasted-list parser and the recipient table must agree:
+ * a duplicate flagged in one and silently allowed in the other is how two views
+ * of the same list start disagreeing about what is about to be sent.
+ */
+function tallyRow(row: RecipientRow, seen: Set<string>, self: string | null, tally: RowTally): void {
+  if (row.amountWei !== null) tally.grossWei += row.amountWei;
+
+  if (row.issue !== null || row.address === null) return;
+
+  const key = row.address.toLowerCase();
+  if (seen.has(key)) {
+    row.warning = "duplicate";
+    tally.duplicateCount += 1;
+  } else if (self !== null && key === self) {
+    row.warning = "self-transfer";
+    tally.selfTransferCount += 1;
+  }
+  seen.add(key);
+
+  if (row.amountWei !== null) tally.totalWei += row.amountWei;
+}
+
 const DELIMITER = /[,;\t]+/;
 const SPACE_DELIMITER = /\s+/;
 const ADDRESS_HEADER = new Set(["address", "addresses", "recipient", "recipients", "wallet", "to"]);
@@ -123,10 +192,7 @@ export function parseRecipientList(text: string, options: ParseOptions): ParsedL
 
   const rows: RecipientRow[] = [];
   const seen = new Set<string>();
-  let totalWei = 0n;
-  let grossWei = 0n;
-  let duplicateCount = 0;
-  let selfTransferCount = 0;
+  const tally: RowTally = { duplicateCount: 0, selfTransferCount: 0, totalWei: 0n, grossWei: 0n };
   let headerSkipped = false;
 
   const lines = text.split(/\r?\n/);
@@ -171,21 +237,7 @@ export function parseRecipientList(text: string, options: ParseOptions): ParsedL
       row.issue = amountResult.issue;
     }
 
-    if (row.amountWei !== null) grossWei += row.amountWei;
-
-    if (row.issue === null && row.address !== null) {
-      const key = row.address.toLowerCase();
-      if (seen.has(key)) {
-        row.warning = "duplicate";
-        duplicateCount += 1;
-      } else if (self !== null && key === self) {
-        row.warning = "self-transfer";
-        selfTransferCount += 1;
-      }
-      seen.add(key);
-      if (row.amountWei !== null) totalWei += row.amountWei;
-    }
-
+    tallyRow(row, seen, self, tally);
     rows.push(row);
   }
 
@@ -195,10 +247,94 @@ export function parseRecipientList(text: string, options: ParseOptions): ParsedL
     rows,
     valid,
     issueCount: rows.length - valid.length,
-    duplicateCount,
-    selfTransferCount,
-    totalWei,
-    grossWei,
+    duplicateCount: tally.duplicateCount,
+    selfTransferCount: tally.selfTransferCount,
+    totalWei: tally.totalWei,
+    grossWei: tally.grossWei,
+  };
+}
+
+/**
+ * Validates the recipient table.
+ *
+ * The table is the primary input now, so this is the twin of
+ * `parseRecipientList`: same address checks, same amount rules, same duplicate
+ * and self-transfer warnings, but addressed by row id rather than by line number
+ * so a reordered or deleted row cannot point at the wrong entry.
+ *
+ * Rows are never dropped. A row the user typed stays on screen with its problem
+ * attached, because silently vanishing input is how a batch gets signed that the
+ * sender did not think they had queued.
+ */
+export function parseRecipientRows(
+  drafts: readonly RecipientDraft[],
+  options: ParseOptions,
+): ParsedTable {
+  const { decimals, selfAddress } = options;
+  const self =
+    selfAddress && isAddress(selfAddress, { strict: false })
+      ? getAddress(selfAddress).toLowerCase()
+      : null;
+
+  const rows: DraftRow[] = [];
+  const seen = new Set<string>();
+  const tally: RowTally = { duplicateCount: 0, selfTransferCount: 0, totalWei: 0n, grossWei: 0n };
+  let issueCount = 0;
+  let blankCount = 0;
+
+  drafts.forEach((draft, index) => {
+    const rawAddress = draft.address.trim();
+    const rawAmount = draft.amount.trim();
+    const pristine = rawAddress.length === 0 && rawAmount.length === 0;
+
+    const row: DraftRow = {
+      id: draft.id,
+      line: index + 1,
+      rawAddress,
+      rawAmount,
+      address: null,
+      amountWei: null,
+      issue: null,
+      warning: null,
+      pristine,
+    };
+
+    if (pristine) {
+      blankCount += 1;
+      rows.push(row);
+      return;
+    }
+
+    const addressResult = parseAddress(rawAddress);
+    row.address = addressResult.address;
+    row.issue = addressResult.issue;
+
+    if (row.issue === null && rawAmount.length === 0) {
+      row.issue = "missing-amount";
+    } else if (row.issue === null) {
+      const amountResult = parseAmount(rawAmount, decimals);
+      row.amountWei = amountResult.amountWei;
+      row.issue = amountResult.issue;
+    }
+
+    if (row.issue !== null) issueCount += 1;
+
+    tallyRow(row, seen, self, tally);
+    rows.push(row);
+  });
+
+  const valid = rows.filter(
+    (row) => row.issue === null && row.address !== null && row.amountWei !== null,
+  );
+
+  return {
+    drafts: rows,
+    valid,
+    issueCount,
+    blankCount,
+    duplicateCount: tally.duplicateCount,
+    selfTransferCount: tally.selfTransferCount,
+    totalWei: tally.totalWei,
   };
 }
 

@@ -1,8 +1,5 @@
-import {
-  DEFAULT_ETN_CHAIN,
-  getEtnChain,
-  type EtnChainConfig,
-} from "./etn";
+import { DEFAULT_CHAIN_ID, getChainConfig, type ChainConfig } from "./chains";
+import { DEFAULT_ETN_CHAIN } from "./etn";
 
 interface Eip1193RequestArguments {
   method: string;
@@ -26,7 +23,7 @@ declare global {
 export const METAMASK_DOWNLOAD_URL = "https://metamask.io/download/";
 
 /** EIP-3085 payload for `wallet_addEthereumChain`, built per network. */
-export function etnChainParams(chain: EtnChainConfig) {
+export function chainParams(chain: ChainConfig) {
   return {
     chainId: chain.idHex,
     chainName: chain.name,
@@ -35,9 +32,6 @@ export function etnChainParams(chain: EtnChainConfig) {
     blockExplorerUrls: [chain.explorerUrl],
   };
 }
-
-/** Mainnet payload, for callers that only ever add the flagship network. */
-export const ETN_WALLET_CHAIN_PARAMS = etnChainParams(DEFAULT_ETN_CHAIN);
 
 export type WalletOutcome = "added" | "switched" | "no-provider" | "rejected" | "unsupported" | "error";
 
@@ -70,18 +64,18 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * Request that the injected wallet add + select an Electroneum network.
+ * Request that the injected wallet add + select one of the supported networks.
  *
  * Wallets implement this inconsistently, so we try the additive call first and
  * fall back to a switch (and vice versa for error 4902 / unknown chain).
  */
-export async function addEtnToWallet(
+export async function addChainToWallet(
   provider: Eip1193Provider | null = getEthereumProvider(),
-  chainId: number = DEFAULT_ETN_CHAIN.id,
+  chainId: number = DEFAULT_CHAIN_ID,
 ): Promise<WalletResult> {
-  const chain = getEtnChain(chainId);
+  const chain = getChainConfig(chainId);
   if (!chain) {
-    return { ok: false, outcome: "unsupported", message: `Chain ${chainId} is not an Electroneum network.` };
+    return { ok: false, outcome: "unsupported", message: `Chain ${chainId} is not a supported network.` };
   }
 
   if (!provider) {
@@ -95,7 +89,7 @@ export async function addEtnToWallet(
   try {
     await provider.request({
       method: "wallet_addEthereumChain",
-      params: [etnChainParams(chain)],
+      params: [chainParams(chain)],
     });
   } catch (error) {
     const code = errorCode(error);
@@ -108,7 +102,7 @@ export async function addEtnToWallet(
       return {
         ok: false,
         outcome: "unsupported",
-        message: "This wallet cannot add networks programmatically. Add ETN manually from the explorer.",
+        message: `This wallet cannot add networks programmatically. Add ${chain.name} manually from its explorer.`,
       };
     }
 
@@ -137,21 +131,34 @@ export async function addEtnToWallet(
 }
 
 /**
- * Ask the wallet to select an Electroneum network it already supports.
+ * ETN-shaped name for the dashboard's "Add ETN to Wallet" button.
  *
- * Switch-first, the mirror image of `addEtnToWallet`: the user has explicitly
+ * Kept because that button names one network specifically; everything else goes
+ * through `addChainToWallet`.
+ */
+export function addEtnToWallet(
+  provider: Eip1193Provider | null = getEthereumProvider(),
+  chainId: number = DEFAULT_ETN_CHAIN.id,
+): Promise<WalletResult> {
+  return addChainToWallet(provider, chainId);
+}
+
+/**
+ * Ask the wallet to select one of the supported networks.
+ *
+ * Switch-first, the mirror image of `addChainToWallet`: the user has explicitly
  * asked to move to a chain, so the switch is the operation that matters and the
  * additive call is only the repair path for unknown-chain error 4902. Some
  * wallets implement add-then-switch and others switch-only, which is why this
  * module carries both orders.
  */
-export async function switchEtnChain(
+export async function switchChain(
   provider: Eip1193Provider | null = getEthereumProvider(),
-  chainId: number = DEFAULT_ETN_CHAIN.id,
+  chainId: number = DEFAULT_CHAIN_ID,
 ): Promise<WalletResult> {
-  const chain = getEtnChain(chainId);
+  const chain = getChainConfig(chainId);
   if (!chain) {
-    return { ok: false, outcome: "unsupported", message: `Chain ${chainId} is not an Electroneum network.` };
+    return { ok: false, outcome: "unsupported", message: `Chain ${chainId} is not a supported network.` };
   }
 
   if (!provider) {
@@ -186,5 +193,5 @@ export async function switchEtnChain(
     // falls through to the additive path, which also performs the switch.
   }
 
-  return addEtnToWallet(provider, chain.id);
+  return addChainToWallet(provider, chain.id);
 }

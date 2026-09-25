@@ -1,37 +1,42 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import {
-  ArrowLeftRight,
-  ArrowUpRight,
-  Loader2,
-  Send,
-  ShieldCheck,
-  TriangleAlert,
-  Wallet,
-} from "lucide-react";
+import { ArrowLeftRight, ArrowUpRight, Loader2, Send, ShieldCheck, TriangleAlert, Wallet } from "lucide-react";
 
 import { GlassCard, SectionHeading } from "@/components/ui/glass-card";
+import type { AssetKind, TokenState } from "@/hooks/use-multi-sender";
 import { cn } from "@/lib/cn";
-import { ETN_NATIVE_SYMBOL, SUPPORTED_ETN_CHAINS, getEtnChainOrDefault } from "@/lib/etn";
-import { formatTokenAmount } from "@/lib/multi-sender/parse";
+import { DEFAULT_CHAIN_ID, getChainConfigOrDefault, type ChainConfig } from "@/lib/chains";
 import { explorerAddressUrl } from "@/lib/multi-sender/contract";
-import type { SendMode, TokenState } from "@/hooks/use-multi-sender";
+import { formatTokenAmount } from "@/lib/multi-sender/parse";
+
+/**
+ * The signing panel: what is about to move, and the one button that moves it.
+ *
+ * The network and asset pickers live in their own cards above this one, so this
+ * panel is where the consequences are stated - recipient count, total, batch
+ * count, the exact contract being called - and where the single reason a send is
+ * blocked is named. One reason at a time, in the order the user can act on them:
+ * a list of every unmet condition buries the one that is actually blocking.
+ */
 
 interface SendPanelProps {
-  mode: SendMode;
-  onModeChange: (mode: SendMode) => void;
-  tokenInput: string;
-  onTokenInputChange: (value: string) => void;
+  asset: AssetKind;
   token: TokenState;
-  decimals: number;
   symbol: string;
-  validCount: number;
+  decimals: number;
+  /** Rows that passed validation - the ones that would be sent. */
+  recipientCount: number;
+  /** Rows with a real problem. Any of them blocks the whole send. */
+  invalidCount: number;
+  /** Every row in the table, blank ones included. */
+  rowCount: number;
   batchCount: number;
   totalWei: bigint;
   balance: bigint | null;
   account: string | null;
   chainId: number | null;
+  chain: ChainConfig;
   chainOk: boolean;
   switching: boolean;
   onSwitchChain: (chainId: number) => void;
@@ -45,19 +50,19 @@ interface SendPanelProps {
 }
 
 export function SendPanel({
-  mode,
-  onModeChange,
-  tokenInput,
-  onTokenInputChange,
+  asset,
   token,
-  decimals,
   symbol,
-  validCount,
+  decimals,
+  recipientCount,
+  invalidCount,
+  rowCount,
   batchCount,
   totalWei,
   balance,
   account,
   chainId,
+  chain,
   chainOk,
   switching,
   onSwitchChain,
@@ -70,17 +75,15 @@ export function SendPanel({
   onSend,
 }: SendPanelProps) {
   const reduceMotion = useReducedMotion();
-  const chain = getEtnChainOrDefault(chainId);
   const shortfall = balance !== null && totalWei > balance ? totalWei - balance : 0n;
-  const approvalNeeded = mode === "erc20" && token.address !== null && (token.allowance ?? 0n) < totalWei;
+  const tokenReady = asset === "native" || token.address !== null;
+  const approvalNeeded = asset !== "native" && tokenReady && (token.allowance ?? 0n) < totalWei;
 
   /**
-   * One reason at a time, in the order the user can act on them. Showing every
-   * unmet condition at once buries the one that is actually blocking the send.
+   * Ordered by what the user has to do first. Whether a contract is configured
+   * depends on the chain, and the chain is only known once a wallet is connected,
+   * so the account check has to come before the configuration check.
    */
-  // Ordered by what the user has to do first. Whether a contract is configured
-  // depends on the chain, and the chain is only known once a wallet is connected,
-  // so the account check has to come before the configuration check.
   const blocker = !account
     ? "Connect a wallet to sign the batch."
     : !chainOk
@@ -88,13 +91,16 @@ export function SendPanel({
         null
       : !configured
         ? `No batch sender contract is configured for ${chain.name}.`
-        : validCount === 0
-          ? "No valid rows to send yet."
-          : mode === "erc20" && token.address === null
-            ? "Enter the token contract address."
-            : shortfall > 0n
-              ? `Insufficient balance - short by ${formatTokenAmount(shortfall, decimals, 4)} ${symbol}.`
-              : null;
+        : linklessAssetBlocker(asset, token)
+          ?? (rowCount === 0
+            ? "Add at least one recipient."
+            : invalidCount > 0
+              ? `Fix the ${invalidCount} row${invalidCount === 1 ? "" : "s"} marked in the table before sending.`
+              : recipientCount === 0
+                ? "No valid rows to send yet."
+                : shortfall > 0n
+                  ? `Insufficient balance - short by ${formatTokenAmount(shortfall, decimals, 4)} ${symbol}.`
+                  : null);
 
   return (
     <GlassCard className="p-5">
@@ -104,91 +110,10 @@ export function SendPanel({
         icon={<ShieldCheck className="h-4 w-4" />}
       />
 
-      <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-slate-800 bg-slate-950/60 p-1">
-        {(["native", "erc20"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onModeChange(option)}
-            disabled={busy}
-            className={cn(
-              "relative rounded-lg px-3 py-2 text-xs font-medium transition disabled:opacity-60",
-              mode === option ? "text-slate-950" : "text-slate-400 hover:text-slate-200",
-            )}
-          >
-            {mode === option ? (
-              <motion.span
-                layoutId="send-mode"
-                transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                className={cn(
-                  "absolute inset-0 rounded-lg",
-                  option === "native" ? "bg-cyan-400" : "bg-slate-200",
-                )}
-              />
-            ) : null}
-            <span className="relative">{option === "native" ? `Native ${ETN_NATIVE_SYMBOL}` : "ERC-20 token"}</span>
-          </button>
-        ))}
-      </div>
-
-      {mode === "erc20" ? (
-        <div className="mt-3 space-y-2">
-          <label className="block text-[0.62rem] font-medium uppercase tracking-[0.16em] text-slate-500">
-            Token contract
-          </label>
-          <input
-            value={tokenInput}
-            onChange={(event) => onTokenInputChange(event.target.value)}
-            disabled={busy}
-            spellCheck={false}
-            placeholder="0x..."
-            className={cn(
-              "num w-full rounded-xl border bg-slate-950/60 px-3 py-2.5 text-xs text-slate-200",
-              "placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/20",
-              token.error ? "border-status-offline/50" : "border-slate-800 focus:border-cyan-500/50",
-              "disabled:opacity-60",
-            )}
-          />
-
-          {token.error ? (
-            <p className="text-[0.68rem] text-status-offline">{token.error}</p>
-          ) : token.loading ? (
-            <p className="flex items-center gap-1.5 text-[0.68rem] text-slate-500">
-              <Loader2 className="h-3 w-3 animate-spin" /> Reading token metadata...
-            </p>
-          ) : token.address ? (
-            <div className="flex flex-wrap items-center gap-1.5 text-[0.68rem] text-slate-500">
-              <span className="rounded-full border border-slate-800 bg-slate-900/60 px-2 py-0.5 text-slate-300">
-                {token.symbol}
-              </span>
-              <span className="num rounded-full border border-slate-800 bg-slate-900/60 px-2 py-0.5">
-                {token.decimals} decimals
-              </span>
-              <a
-                href={`${chain.explorerUrl}/token/${token.address}`}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-slate-500 transition hover:text-cyan-300"
-              >
-                explorer <ArrowUpRight className="h-3 w-3" />
-              </a>
-            </div>
-          ) : null}
-
-          {approvalNeeded ? (
-            <p className="flex items-start gap-1.5 rounded-lg border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[0.68rem] leading-relaxed text-slate-400">
-              <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-status-degraded" />
-              Two transactions: an approval for exactly this batch, then the send. The allowance is spent by the batch,
-              never left open.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <dl className="mt-4 space-y-1.5 border-t border-slate-800/80 pt-3 text-[0.7rem]">
+      <dl className="mt-4 space-y-1.5 text-[0.7rem]">
         <div className="flex items-center justify-between">
           <dt className="text-slate-500">Recipients</dt>
-          <dd className="num text-slate-300">{validCount}</dd>
+          <dd className="num text-slate-300">{recipientCount}</dd>
         </div>
         <div className="flex items-center justify-between">
           <dt className="text-slate-500">Total</dt>
@@ -200,20 +125,25 @@ export function SendPanel({
           <dt className="text-slate-500">Transactions</dt>
           <dd className="num text-slate-300">{batchCount}</dd>
         </div>
-        {chainId !== null ? (
-          <div className="flex items-center justify-between">
-            <dt className="text-slate-500">Network</dt>
-            <dd
-              className={cn(
-                "num",
-                !chainOk || chain.testnet ? "text-status-degraded" : "text-slate-300",
-              )}
-            >
-              {chainOk ? `${chain.label} · ${chain.id}` : `unsupported · ${chainId}`}
-            </dd>
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between">
+          <dt className="text-slate-500">Network</dt>
+          <dd className={cn("num", !chainId ? "text-slate-500" : chainOk ? "text-slate-300" : "text-status-degraded")}>
+            {chainId === null
+              ? "-"
+              : chainOk
+                ? `${chain.name} · ${chain.id}`
+                : `unsupported · ${chainId}`}
+          </dd>
+        </div>
       </dl>
+
+      {approvalNeeded ? (
+        <p className="mt-3 flex items-start gap-1.5 rounded-xl border border-slate-800 bg-slate-950/50 px-2.5 py-2 text-[0.68rem] leading-relaxed text-slate-400">
+          <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0 text-status-degraded" />
+          Two transactions: an approval for exactly this batch, then the send. The allowance is spent by the batch,
+          never left open.
+        </p>
+      ) : null}
 
       <div className="mt-4 space-y-2">
         {!account ? (
@@ -234,39 +164,36 @@ export function SendPanel({
           /**
            * A batch signed on the wrong chain sends the wrong asset entirely, so
            * Send is replaced rather than merely disabled: the only useful action
-           * is moving the wallet. One button per supported network, because the
-           * app cannot know whether this batch is a real airdrop or a rehearsal.
+           * is moving the wallet. The default network is offered here and the
+           * full list sits in the network selector above, so a testnet rehearsal
+           * is still one click away without stacking four buttons in this panel.
            */
           <div className="space-y-2">
             <p className="flex items-start gap-1.5 rounded-xl border border-status-degraded/30 bg-status-degraded/[0.07] px-3 py-2.5 text-[0.68rem] leading-relaxed text-slate-300">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-degraded" />
               <span>
                 Your wallet is on an unsupported network
-                {typeof chainId === "number" ? ` (chain ${chainId})` : ""}. Switch to an Electroneum network to
-                send.
+                {typeof chainId === "number" ? ` (chain ${chainId})` : ""}. Switch to a supported network to send.
               </span>
             </p>
 
-            {SUPPORTED_ETN_CHAINS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => onSwitchChain(option.id)}
-                disabled={switching}
-                className={cn(
-                  "inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition duration-200 ease-out-expo",
-                  "border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20 hover:shadow-glow",
-                  "disabled:cursor-wait disabled:opacity-70",
-                )}
-              >
-                {switching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowLeftRight className="h-4 w-4" />
-                )}
-                Switch to {option.name}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => onSwitchChain(DEFAULT_CHAIN_ID)}
+              disabled={switching}
+              className={cn(
+                "inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition duration-200 ease-out-expo",
+                "border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20 hover:shadow-glow",
+                "disabled:cursor-wait disabled:opacity-70",
+              )}
+            >
+              {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4" />}
+              Switch to {getChainConfigOrDefault(DEFAULT_CHAIN_ID).name}
+            </button>
+
+            <p className="text-[0.68rem] leading-relaxed text-slate-500">
+              Sending to a testnet instead? Pick it from the network selector above.
+            </p>
           </div>
         ) : (
           <button
@@ -294,11 +221,11 @@ export function SendPanel({
           >
             {blocker}
           </motion.p>
-        ) : (
+        ) : account && chainOk ? (
           <p className="text-[0.68rem] leading-relaxed text-slate-500">
             Funds move straight from your wallet to each recipient - the contract never holds them.
           </p>
-        )}
+        ) : null}
 
         {connectionError ? (
           <p role="alert" className="text-[0.68rem] leading-relaxed text-status-offline">
@@ -320,4 +247,18 @@ export function SendPanel({
       </div>
     </GlassCard>
   );
+}
+
+/**
+ * The asset half of the blocking rules.
+ *
+ * Returns null when the asset is ready to send, so the caller can fall through
+ * to the row and balance checks with `??`. Kept out of the component body purely
+ * to stop the nested ternary above from becoming unreadable.
+ */
+function linklessAssetBlocker(asset: AssetKind, token: TokenState): string | null {
+  if (asset === "native") return null;
+  if (token.error) return token.error;
+  if (!token.address) return "Enter the token contract address.";
+  return null;
 }

@@ -1,22 +1,17 @@
 import { createPublicClient, defineChain, http, type Chain, type PublicClient } from "viem";
 
-import {
-  ETN_MAINNET,
-  ETN_TESTNET,
-  RPC_REQUEST_TIMEOUT_MS,
-  type EtnChainConfig,
-  type MonitoredRpc,
-} from "./etn";
+import { SUPPORTED_CHAINS, type ChainConfig } from "./chains";
+import { ETN_MAINNET, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS, type MonitoredRpc } from "./etn";
 
 /**
- * Projects a flat `EtnChainConfig` into the shape viem wants.
+ * Projects a flat `ChainConfig` into the shape viem wants.
  *
- * One function rather than two hand-written `defineChain` blocks: the testnet
- * definition is the only chance to get a chain id or an explorer wrong in a way
- * that silently points a user at the wrong network, and deriving both from the
- * same record removes that class of mistake.
+ * One function rather than a hand-written `defineChain` per network: a chain id,
+ * a native currency or an explorer URL is exactly the detail that silently
+ * points a user at the wrong network when it is duplicated, so every chain is
+ * derived from the same record.
  */
-function defineEtnChain(config: EtnChainConfig): Chain {
+function defineEvmChain(config: ChainConfig): Chain {
   return defineChain({
     id: config.id,
     name: config.name,
@@ -36,16 +31,22 @@ function defineEtnChain(config: EtnChainConfig): Chain {
 }
 
 /** viem chain definition for the Electroneum Smart Chain mainnet. */
-export const electroneum = defineEtnChain(ETN_MAINNET);
+export const electroneum = defineEvmChain(ETN_MAINNET);
 
 /** viem chain definition for the Electroneum Smart Chain testnet. */
-export const electroneumTestnet = defineEtnChain(ETN_TESTNET);
+export const electroneumTestnet = defineEvmChain(ETN_TESTNET);
 
 /** viem chains keyed by EIP-155 id, for the write path's runtime lookup. */
 const VIEM_CHAINS: Record<number, Chain> = {
   [ETN_MAINNET.id]: electroneum,
   [ETN_TESTNET.id]: electroneumTestnet,
 };
+
+// Everything else in the registry, including networks added later: the shared
+// projection means a new chain needs an entry in `chains.ts` and nothing here.
+for (const config of SUPPORTED_CHAINS) {
+  if (!VIEM_CHAINS[config.id]) VIEM_CHAINS[config.id] = defineEvmChain(config);
+}
 
 /** viem chain for an id, or null when the wallet is on an unsupported network. */
 export function getViemChain(chainId: number | null | undefined): Chain | null {

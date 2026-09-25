@@ -5,25 +5,28 @@ import { ArrowLeft, ExternalLink, Info, ShieldCheck, Sparkles, TriangleAlert, Za
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
-import { RecipientInput } from "@/components/multi-sender/recipient-input";
+import { AssetSelector } from "@/components/multi-sender/asset-selector";
+import { BulkImportModal, type ImportMode } from "@/components/multi-sender/bulk-import-modal";
+import { NetworkSelector } from "@/components/multi-sender/network-selector";
+import { RecipientTable } from "@/components/multi-sender/recipient-table";
 import { SendPanel } from "@/components/multi-sender/send-panel";
 import { SummaryCards } from "@/components/multi-sender/summary-cards";
 import { TxModal } from "@/components/multi-sender/tx-modal";
-import { ValidationPanel } from "@/components/multi-sender/validation-panel";
 import { Notice } from "@/components/ui/notice";
 import { useMultiSender } from "@/hooks/use-multi-sender";
+import { useRecipientRows, type RecipientSeed } from "@/hooks/use-recipient-rows";
 import { cn } from "@/lib/cn";
-import { ETN_NATIVE_SYMBOL } from "@/lib/etn";
-import { planBatches, parseRecipientList } from "@/lib/multi-sender/parse";
+import { planBatches } from "@/lib/multi-sender/parse";
 
 /**
  * Multi-Sender module.
  *
- * Composition only: the parse/validate step is pure (`lib/multi-sender/parse`),
- * the wallet and send sequence live in `useMultiSender`, and each panel owns its
- * own presentation. The page holds the two pieces of state that panels must
- * agree on - the pasted list and the asset being sent - so validation, totals
- * and the send call can never disagree about what is being shipped.
+ * Composition only: the validity rules are pure (`lib/multi-sender/parse`), the
+ * wallet and send sequence live in `useMultiSender`, the row list lives in
+ * `useRecipientRows`, and each card owns its own presentation. The page holds
+ * exactly one piece of state of its own - whether the bulk import modal is open -
+ * so validation, totals and the send call can never disagree about what is being
+ * shipped.
  */
 
 const HIGHLIGHTS = [
@@ -34,8 +37,7 @@ const HIGHLIGHTS = [
 
 export default function MultiSenderPage() {
   const reduceMotion = useReducedMotion();
-  const [text, setText] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const {
     account,
@@ -48,11 +50,12 @@ export default function MultiSenderPage() {
     connecting,
     connectionError,
     connect,
-    mode,
-    setMode,
-    tokenInput,
-    setTokenInput,
+    asset,
+    setAsset,
+    tokenAddress,
+    setTokenAddress,
     token,
+    symbol,
     decimals,
     spendableBalance,
     maxBatchSize,
@@ -63,6 +66,27 @@ export default function MultiSenderPage() {
     configured,
     configuredAnywhere,
   } = useMultiSender();
+
+  // Rows re-validate against the wallet and the active asset on every render: a
+  // different wallet changes which rows are self-transfers, and a token changes
+  // the decimals every amount is scaled by.
+  const { rows, parsed, update, addRow, appendRows, replaceRows, removeRow, applyUniformAmount } =
+    useRecipientRows(decimals, account);
+
+  const batches = useMemo(() => planBatches(parsed.valid, maxBatchSize), [maxBatchSize, parsed.valid]);
+
+  const handleImport = useCallback(
+    (imported: readonly RecipientSeed[], mode: ImportMode) => {
+      if (mode === "replace") replaceRows(imported);
+      else appendRows(imported);
+      setBulkImportOpen(false);
+    },
+    [appendRows, replaceRows],
+  );
+
+  const handleSend = useCallback(() => {
+    void send(parsed.valid);
+  }, [parsed.valid, send]);
 
   /**
    * What the header badge claims about the wallet's network. An unsupported
@@ -76,32 +100,6 @@ export default function MultiSenderPage() {
         ? `${chain.label} · ${chain.id}`
         : `unsupported · ${chainId}`;
   const networkIsWarning = chainId !== null && (!chainOk || chain.testnet);
-
-  const symbol = mode === "native" ? ETN_NATIVE_SYMBOL : token.symbol;
-
-  // Re-validates on every keystroke and whenever the wallet or asset changes,
-  // because both move the goalposts: a different wallet changes which rows are
-  // self-transfers, and a token changes the decimals every amount is scaled by.
-  const parsed = useMemo(
-    () => parseRecipientList(text, { decimals, selfAddress: account }),
-    [account, decimals, text],
-  );
-
-  const batches = useMemo(() => planBatches(parsed.valid, maxBatchSize), [maxBatchSize, parsed.valid]);
-
-  const handleFile = useCallback((name: string, contents: string) => {
-    setFileName(name);
-    setText(contents);
-  }, []);
-
-  const handleTextChange = useCallback((value: string) => {
-    setText(value);
-    setFileName(null);
-  }, []);
-
-  const handleSend = useCallback(() => {
-    void send(parsed.valid);
-  }, [parsed.valid, send]);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
@@ -138,8 +136,8 @@ export default function MultiSenderPage() {
                 </span>
               </div>
               <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
-                Airdrop or pay hundreds of wallets in a single transaction. Validate the list in the browser, then sign
-                once - the contract forwards every transfer atomically, or reverts the lot.
+                Airdrop or pay hundreds of wallets in a single transaction. Build the list in the table, watch every
+                row validate, then sign once - the contract forwards each transfer atomically, or reverts the lot.
               </p>
             </div>
 
@@ -175,8 +173,8 @@ export default function MultiSenderPage() {
             detail={
               <>
                 Batches are being signed against <span className="num">{chain.name}</span> at{" "}
-                <span className="num">{contractAddress ?? "no configured address"}</span>. Switch your wallet to
-                Electroneum Mainnet when you are ready to move real funds.
+                <span className="num">{contractAddress ?? "no configured address"}</span>. Switch to Electroneum
+                Mainnet when you are ready to move real funds.
               </>
             }
           />
@@ -191,28 +189,53 @@ export default function MultiSenderPage() {
               <>
                 Deploy <span className="num">contracts/src/PulseMultiSender.sol</span> (see{" "}
                 <span className="num">contracts/README.md</span>), then set{" "}
-                <span className="num">NEXT_PUBLIC_MULTISENDER_MAINNET</span> and{" "}
-                <span className="num">NEXT_PUBLIC_MULTISENDER_TESTNET</span> in{" "}
-                <span className="num">frontend/.env.local</span> and rebuild. Parsing and validation work without it.
+                <span className="num">NEXT_PUBLIC_MULTISENDER_MAINNET</span>,{" "}
+                <span className="num">NEXT_PUBLIC_MULTISENDER_TESTNET</span> (plus{" "}
+                <span className="num">..._ETHEREUM</span> and <span className="num">..._BSC</span> if you deploy
+                there) in <span className="num">frontend/.env.local</span> and rebuild. Building the list and
+                validating it work without a deployment.
               </>
             }
           />
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-5 lg:gap-6">
-          <div className="min-w-0 space-y-4 lg:col-span-3">
-            <RecipientInput
-              value={text}
-              onChange={handleTextChange}
-              onFile={handleFile}
-              fileName={fileName}
-              parsedRows={parsed.rows.length}
+          <div className="min-w-0 lg:col-span-3">
+            <RecipientTable
+              rows={rows}
+              parsed={parsed}
+              symbol={symbol}
+              decimals={decimals}
               disabled={sendBusy}
+              onUpdate={update}
+              onRemove={removeRow}
+              onAdd={addRow}
+              onApplyUniformAmount={applyUniformAmount}
+              onBulkImport={() => setBulkImportOpen(true)}
             />
-            <ValidationPanel parsed={parsed} symbol={symbol} decimals={decimals} />
           </div>
 
           <div className="min-w-0 space-y-4 lg:col-span-2">
+            <NetworkSelector
+              chainId={chainId}
+              chain={chain}
+              chainOk={chainOk}
+              connected={account !== null}
+              switching={switching}
+              disabled={sendBusy}
+              onSelect={switchTo}
+            />
+
+            <AssetSelector
+              asset={asset}
+              onAssetChange={setAsset}
+              chain={chain}
+              tokenAddress={tokenAddress}
+              onTokenAddressChange={setTokenAddress}
+              token={token}
+              disabled={sendBusy}
+            />
+
             <SummaryCards
               validCount={parsed.valid.length}
               issueCount={parsed.issueCount}
@@ -227,25 +250,25 @@ export default function MultiSenderPage() {
             />
 
             <SendPanel
-              mode={mode}
-              onModeChange={setMode}
-              tokenInput={tokenInput}
-              onTokenInputChange={setTokenInput}
+              asset={asset}
               token={token}
-              decimals={decimals}
               symbol={symbol}
-              validCount={parsed.valid.length}
+              decimals={decimals}
+              recipientCount={parsed.valid.length}
+              invalidCount={parsed.issueCount}
+              rowCount={parsed.drafts.length}
               batchCount={batches.length}
               totalWei={parsed.totalWei}
               balance={account ? spendableBalance : null}
               account={account}
               chainId={chainId}
+              chain={chain}
               chainOk={chainOk}
               switching={switching}
-              onSwitchChain={(target) => void switchTo(target)}
+              onSwitchChain={switchTo}
               connecting={connecting}
               connectionError={connectionError}
-              onConnect={() => void connect()}
+              onConnect={connect}
               configured={configured}
               contractAddress={contractAddress}
               busy={sendBusy}
@@ -254,13 +277,22 @@ export default function MultiSenderPage() {
           </div>
         </div>
 
-        <footer className="flex flex-col gap-2 border-t border-slate-800/80 pt-5 text-[0.7rem] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="flex flex-col gap-1 border-t border-slate-800/80 pt-4 text-[0.7rem] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <p>
             Transfers are irreversible once mined - always send a small test batch first.
           </p>
           <p className="num">ETN Pulse · Multi-Sender module</p>
         </footer>
       </motion.div>
+
+      <BulkImportModal
+        open={bulkImportOpen}
+        onClose={() => setBulkImportOpen(false)}
+        onImport={handleImport}
+        decimals={decimals}
+        selfAddress={account}
+        disabled={sendBusy}
+      />
 
       <TxModal
         progress={progress}

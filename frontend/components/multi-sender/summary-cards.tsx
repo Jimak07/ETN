@@ -5,8 +5,8 @@ import { Coins, Users, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { GlassCard } from "@/components/ui/glass-card";
+import { isSupportedChain } from "@/lib/chains";
 import { cn } from "@/lib/cn";
-import { isSupportedEtnChain } from "@/lib/etn";
 import { formatTokenAmount } from "@/lib/multi-sender/parse";
 
 /**
@@ -71,13 +71,13 @@ export function SummaryCards({
   configured,
 }: SummaryCardsProps) {
   const shortfall = balance !== null && totalWei > balance ? totalWei - balance : 0n;
-  const chainOk = isSupportedEtnChain(chainId);
+  const chainOk = isSupportedChain(chainId);
 
   // Disconnected beats unsupported: with no chain at all the useful instruction
   // is to connect, not to switch somewhere specific.
   const balanceHint = (() => {
     if (chainId === null) return "Connect a wallet to read the balance";
-    if (!chainOk) return "Switch to an Electroneum network";
+    if (!chainOk) return "Switch to a supported network";
     if (!configured) return "No contract deployed on this network yet";
     if (balance === null) return "Could not read the balance on this network";
     if (shortfall > 0n) {
@@ -101,7 +101,7 @@ export function SummaryCards({
   return (
     <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
       <Tile
-        label="Total addresses"
+        label="Total recipients"
         icon={<Users className="h-3.5 w-3.5" />}
         value={String(validCount)}
         tone={validCount > 0 ? "text-slate-50" : "text-slate-500"}
@@ -111,14 +111,16 @@ export function SummaryCards({
               <span className="num text-status-offline">{issueCount}</span> row
               {issueCount === 1 ? "" : "s"} excluded by validation
             </>
+          ) : validCount === 0 ? (
+            "Add rows, or bulk import a list"
           ) : (
-            "every row passed validation"
+            "every filled row passed validation"
           )
         }
       />
 
       <Tile
-        label={configured ? "Total to send" : "Total to send"}
+        label="Total to send"
         icon={<Coins className="h-3.5 w-3.5" />}
         value={`${formatTokenAmount(totalWei, decimals, 4)} ${symbol}`}
         tone="text-cyan-300"
