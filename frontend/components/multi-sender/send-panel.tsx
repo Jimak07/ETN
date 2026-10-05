@@ -6,7 +6,12 @@ import { ArrowLeftRight, ArrowUpRight, Loader2, Send, ShieldCheck, TriangleAlert
 import { GlassCard, SectionHeading } from "@/components/ui/glass-card";
 import type { AssetKind, NftStandard, TokenState } from "@/hooks/use-multi-sender";
 import { cn } from "@/lib/cn";
-import { DEFAULT_CHAIN_ID, getChainConfigOrDefault, type ChainConfig } from "@/lib/chains";
+import {
+  DEFAULT_CHAIN_ID,
+  SUPPORTED_CHAINS,
+  getChainConfigOrDefault,
+  type ChainConfig,
+} from "@/lib/chains";
 import { explorerAddressUrl } from "@/lib/multi-sender/contract";
 import { formatTokenAmount } from "@/lib/multi-sender/parse";
 
@@ -81,12 +86,19 @@ export function SendPanel({
   nftTokenId,
 }: SendPanelProps) {
   const reduceMotion = useReducedMotion();
+  const multiSenderAddress =
+    typeof chainId === "number"
+      ? (SUPPORTED_CHAINS[chainId]?.multiSenderAddress ?? contractAddress)
+      : contractAddress;
+  const isDeployed = Boolean(multiSenderAddress && configured);
+
   const shortfall = balance !== null && totalWei > balance ? totalWei - balance : 0n;
   const tokenReady = asset === "native" || token.address !== null;
   const approvalNeeded =
-    asset === "nft"
+    isDeployed &&
+    (asset === "nft"
       ? tokenReady && nftApproved === false
-      : asset !== "native" && tokenReady && (token.allowance ?? 0n) < totalWei;
+      : asset !== "native" && tokenReady && (token.allowance ?? 0n) < totalWei);
 
   /**
    * Ordered by what the user has to do first. Whether a contract is configured
@@ -98,8 +110,8 @@ export function SendPanel({
     : !chainOk
       ? // Handled by the switch prompt below, which replaces the Send button.
         null
-      : !configured
-        ? `No batch sender contract is configured for ${chain.name}.`
+      : !isDeployed
+        ? "The Multi-Sender contract is not yet deployed on this network."
         : linklessAssetBlocker(asset, token, nftStandard, nftTokenId)
           ?? (rowCount === 0
             ? "Add at least one recipient."
@@ -216,24 +228,36 @@ export function SendPanel({
             </p>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={busy || blocker !== null}
-            className={cn(
-              "group inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition duration-200 ease-out-expo",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-              blocker === null
-                ? "bg-cyan-400 text-slate-950 hover:bg-cyan-300 hover:shadow-glow"
-                : "cursor-not-allowed border border-slate-800 bg-slate-900/60 text-slate-500",
-            )}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {busy ? "Sending..." : batchCount > 1 ? `Send ${batchCount} batches` : "Send batch"}
-          </button>
+          <>
+            {!isDeployed ? (
+              <div
+                role="alert"
+                className="flex items-start gap-1.5 rounded-xl border border-status-degraded/40 bg-status-degraded/10 px-3 py-2.5 text-[0.68rem] leading-relaxed text-status-degraded"
+              >
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-degraded" />
+                <span>The Multi-Sender contract is not yet deployed on this network.</span>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={busy || !isDeployed || blocker !== null}
+              className={cn(
+                "group inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition duration-200 ease-out-expo",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
+                isDeployed && blocker === null
+                  ? "bg-cyan-400 text-slate-950 hover:bg-cyan-300 hover:shadow-glow"
+                  : "cursor-not-allowed border border-slate-800 bg-slate-900/60 text-slate-500",
+              )}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {busy ? "Sending..." : batchCount > 1 ? `Send ${batchCount} batches` : "Send batch"}
+            </button>
+          </>
         )}
 
-        {blocker ? (
+        {blocker && isDeployed ? (
           <motion.p
             initial={reduceMotion ? false : { opacity: 0, y: -2 }}
             animate={{ opacity: 1, y: 0 }}
@@ -241,7 +265,7 @@ export function SendPanel({
           >
             {blocker}
           </motion.p>
-        ) : account && chainOk ? (
+        ) : account && chainOk && isDeployed ? (
           <p className="text-[0.68rem] leading-relaxed text-slate-500">
             Funds move straight from your wallet to each recipient - the contract never holds them.
           </p>
@@ -253,7 +277,7 @@ export function SendPanel({
           </p>
         ) : null}
 
-        {contractAddress ? (
+        {contractAddress && isDeployed ? (
           <a
             href={explorerAddressUrl(chainId, contractAddress)}
             target="_blank"

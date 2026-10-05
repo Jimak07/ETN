@@ -17,7 +17,13 @@ import {
   type TransactionReceipt,
 } from "viem";
 
-import { BNB_SMART_CHAIN, ETHEREUM, getChainConfig, getChainConfigOrDefault } from "@/lib/chains";
+import {
+  BNB_SMART_CHAIN,
+  ETHEREUM,
+  SUPPORTED_CHAINS,
+  getChainConfig,
+  getChainConfigOrDefault,
+} from "@/lib/chains";
 import { getViemChain, getViemChainOrDefault } from "@/lib/etn-chain";
 import { ETN_MAINNET, ETN_NATIVE_DECIMALS, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS } from "@/lib/etn";
 import type { Eip1193Provider } from "@/lib/wallet";
@@ -53,39 +59,37 @@ function parseAddress(raw: string | undefined): Address | null {
 }
 
 /**
- * One deployment address per supported chain.
- *
- * The contract is deployed separately to each network and a mainnet address
- * means nothing on testnet, so the mapping is keyed by chain id and resolved at
- * call time from the connected wallet's chain. `NEXT_PUBLIC_MULTISENDER_ADDRESS`
- * is still honoured as the mainnet value so deployments made before testnet
- * support keep working without a rename. Ethereum and BNB Smart Chain are listed
- * even though no deployment exists for them by default: the panel then says so,
- * which is more honest than a dropdown that quietly cannot send.
+ * Deployment addresses per supported chain, dynamically resolved from the network registry.
  */
-export const MULTISENDER_ADDRESSES: Readonly<Record<number, Address | null>> = {
-  [ETN_MAINNET.id]: parseAddress(
-    process.env.NEXT_PUBLIC_MULTISENDER_MAINNET ?? process.env.NEXT_PUBLIC_MULTISENDER_ADDRESS,
-  ),
-  [ETN_TESTNET.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_TESTNET),
-  [ETHEREUM.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_ETHEREUM),
-  [BNB_SMART_CHAIN.id]: parseAddress(process.env.NEXT_PUBLIC_MULTISENDER_BSC),
-};
+export const MULTISENDER_ADDRESSES: Readonly<Record<number, Address | null>> = Object.fromEntries(
+  SUPPORTED_CHAINS.map((chain) => [
+    chain.id,
+    chain.multiSenderAddress && isAddress(chain.multiSenderAddress, { strict: false })
+      ? getAddress(chain.multiSenderAddress)
+      : null,
+  ]),
+);
 
-/** Deployment address for a chain, or null when that network has none configured. */
+/** Deployment address for a chain, dynamically fetched from the network registry. */
 export function getMultiSenderAddress(chainId: number | null | undefined): Address | null {
-  if (typeof chainId !== "number") return null;
-  return MULTISENDER_ADDRESSES[chainId] ?? null;
+  if (typeof chainId !== "number" || !Number.isInteger(chainId)) return null;
+  const configured = SUPPORTED_CHAINS[chainId]?.multiSenderAddress;
+  if (!configured || !isAddress(configured, { strict: false })) return null;
+  try {
+    return getAddress(configured);
+  } catch {
+    return null;
+  }
 }
 
-/** True when the given chain is supported *and* has a deployed contract. */
+/** True when the given chain is supported *and* has a deployed contract in the registry. */
 export function isMultiSenderConfigured(chainId: number | null | undefined): boolean {
   return getMultiSenderAddress(chainId) !== null;
 }
 
 /** True when at least one network has a deployment; drives the module-level notice. */
-export const hasAnyMultiSenderDeployment: boolean = Object.values(MULTISENDER_ADDRESSES).some(
-  (address) => address !== null,
+export const hasAnyMultiSenderDeployment: boolean = SUPPORTED_CHAINS.some(
+  (chain) => Boolean(chain.multiSenderAddress),
 );
 
 /** Mirrors the contract constant; the chain value wins when it can be read. */
@@ -393,8 +397,9 @@ export function readAllowance(
   client: PublicClient,
   token: Address,
   owner: Address,
-  spender: Address,
+  spender: Address | null | undefined,
 ): Promise<bigint> {
+  if (!spender) return Promise.resolve(0n);
   return client.readContract({
     address: token,
     abi: erc20Abi,
@@ -561,8 +566,9 @@ export function readNftApprovalForAll(
   client: PublicClient,
   token: Address,
   owner: Address,
-  operator: Address,
+  operator: Address | null | undefined,
 ): Promise<boolean> {
+  if (!operator) return Promise.resolve(false);
   return client.readContract({
     address: token,
     abi: nftApprovalAbi,

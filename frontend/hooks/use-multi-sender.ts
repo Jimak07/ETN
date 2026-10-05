@@ -200,9 +200,12 @@ export function useMultiSender() {
   const chainOk = isSupportedChain(chainId);
   /** Descriptor for the live chain, or mainnet as a display placeholder. */
   const chain: ChainConfig = getChainConfigOrDefault(chainId);
-  /** Deployment address for the connected chain, resolved per render. */
-  const contractAddress = getMultiSenderAddress(chainId);
-  const configured = isMultiSenderConfigured(chainId);
+  /** Deployment address for the connected chain, resolved dynamically from SUPPORTED_CHAINS[chainId].multiSenderAddress. */
+  const contractAddress: Address | null =
+    typeof chainId === "number" && SUPPORTED_CHAINS[chainId]?.multiSenderAddress
+      ? (getAddress(SUPPORTED_CHAINS[chainId]!.multiSenderAddress!) as Address)
+      : null;
+  const configured = contractAddress !== null;
 
   // --- wallet detection -----------------------------------------------------
 
@@ -480,10 +483,12 @@ export function useMultiSender() {
         // The allowance is only meaningful once there is a spender to approve,
         // and that spender is the deployment for the connected chain.
         const [balance, allowance] =
-          account && contractAddress
+          account
             ? await Promise.all([
-                readTokenBalance(client, parsed, account),
-                readAllowance(client, parsed, account, contractAddress),
+                readTokenBalance(client, parsed, account).catch(() => null),
+                contractAddress
+                  ? readAllowance(client, parsed, account, contractAddress).catch(() => 0n)
+                  : 0n,
               ])
             : [null, null];
 
@@ -520,20 +525,25 @@ export function useMultiSender() {
   const refreshToken = useCallback(async () => {
     if (!token.address || !account) return;
     const client = getReadClient(chainId);
-    if (!client || !contractAddress) return;
+    if (!client) return;
 
     try {
       if (asset === "nft") {
+        if (!contractAddress) {
+          setNftApproved(false);
+          setToken((previous) => ({ ...previous, allowance: 0n }));
+          return;
+        }
         const isApproved = await readNftApprovalForAll(client, token.address, account, contractAddress);
         setNftApproved(isApproved);
         setToken((previous) => ({ ...previous, allowance: isApproved ? 1n : 0n }));
         return;
       }
 
-      const [balance, allowance] = await Promise.all([
-        readTokenBalance(client, token.address, account),
-        readAllowance(client, token.address, account, contractAddress),
-      ]);
+      const balance = await readTokenBalance(client, token.address, account);
+      const allowance = contractAddress
+        ? await readAllowance(client, token.address, account, contractAddress)
+        : 0n;
       setToken((previous) => ({ ...previous, balance, allowance }));
     } catch {
       // Same reasoning as the native balance: keep the last good value.
@@ -571,8 +581,8 @@ export function useMultiSender() {
       // depends on which chain the wallet is on.
       if (!configured || !contractAddress) {
         fail(
-          "Contract not configured",
-          `No PulseMultiSender deployment is configured for ${chain.name} (chain ${chain.id}). Set the matching NEXT_PUBLIC_MULTISENDER_* variable and rebuild.`,
+          "Contract not deployed",
+          `The Multi-Sender contract is not yet deployed on this network (${chain.name}).`,
         );
         return;
       }

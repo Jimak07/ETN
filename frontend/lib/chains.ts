@@ -18,6 +18,8 @@ import { DEFAULT_ETN_CHAIN, ETN_MAINNET, ETN_TESTNET, type EtnChainConfig } from
 export type ChainConfig = EtnChainConfig & {
   /** Optional Etherscan-style API key, appended by the explorer reader. */
   explorerApiKey?: string | null;
+  /** Optional deployed PulseMultiSender contract address for this chain. */
+  multiSenderAddress?: `0x${string}`;
 };
 
 function optionalKey(...candidates: Array<string | undefined>): string | null {
@@ -33,6 +35,18 @@ const ETHEREUM_RPC_URL =
 
 const BSC_RPC_URL =
   (process.env.NEXT_PUBLIC_BSC_RPC ?? "").trim() || "https://bsc-dataseed.bnbchain.org";
+
+/** Electroneum mainnet with deployed multi-sender contract. */
+export const ETN_MAINNET_CHAIN: ChainConfig = {
+  ...ETN_MAINNET,
+  multiSenderAddress: "0x369D2Fe03Ae03915D7a48D58Daf0dcd8207245CF",
+};
+
+/** Electroneum testnet with deployed multi-sender contract. */
+export const ETN_TESTNET_CHAIN: ChainConfig = {
+  ...ETN_TESTNET,
+  multiSenderAddress: "0x505Cfac9c4F8B6aB8a8AbeBf37bFC9BFe790f1D0",
+};
 
 /**
  * Ethereum mainnet.
@@ -53,6 +67,7 @@ export const ETHEREUM: ChainConfig = {
   explorerApiKey: optionalKey(process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY),
   rpcUrls: [ETHEREUM_RPC_URL, "https://eth.llamarpc.com"],
   testnet: false,
+  multiSenderAddress: undefined,
 };
 
 /** BNB Smart Chain mainnet. */
@@ -67,27 +82,37 @@ export const BNB_SMART_CHAIN: ChainConfig = {
   explorerApiKey: optionalKey(process.env.NEXT_PUBLIC_BSCSCAN_API_KEY),
   rpcUrls: [BSC_RPC_URL, "https://bsc-rpc.publicnode.com"],
   testnet: false,
+  multiSenderAddress: undefined,
+};
+
+const CHAINS_LIST: readonly ChainConfig[] = [
+  ETN_MAINNET_CHAIN,
+  ETN_TESTNET_CHAIN,
+  ETHEREUM,
+  BNB_SMART_CHAIN,
+];
+
+export type SupportedChains = readonly ChainConfig[] & {
+  readonly [chainId: number]: ChainConfig | undefined;
 };
 
 /**
  * Every selectable network, Electroneum first.
  *
- * Order is deliberate: the first entry is what a disconnected wallet sees, so
- * the default network is the one this hub exists for.
+ * Acts as both an iterable array of supported chains and a dictionary mapping
+ * chainId -> ChainConfig (e.g. SUPPORTED_CHAINS[chainId].multiSenderAddress).
  */
-export const SUPPORTED_CHAINS: readonly ChainConfig[] = [
-  ETN_MAINNET,
-  ETN_TESTNET,
-  ETHEREUM,
-  BNB_SMART_CHAIN,
-];
+export const SUPPORTED_CHAINS: SupportedChains = Object.assign(
+  [...CHAINS_LIST],
+  Object.fromEntries(CHAINS_LIST.map((chain) => [chain.id, chain])),
+);
 
 /** Chain id shown before a wallet reports one. */
 export const DEFAULT_CHAIN_ID = DEFAULT_ETN_CHAIN.id;
 
 export function getChainConfig(chainId: number | null | undefined): ChainConfig | null {
   if (typeof chainId !== "number" || !Number.isInteger(chainId)) return null;
-  return SUPPORTED_CHAINS.find((chain) => chain.id === chainId) ?? null;
+  return SUPPORTED_CHAINS[chainId] ?? null;
 }
 
 export function isSupportedChain(chainId: number | null | undefined): boolean {
