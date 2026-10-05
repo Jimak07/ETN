@@ -571,9 +571,10 @@ export function useMultiSender() {
       if (!chainOk) {
         fail(
           "Wrong network",
-          `Switch your wallet to a supported network (${SUPPORTED_CHAINS.map((option) => option.name).join(
-            ", ",
-          )}) before sending a batch.`,
+          `Switch your wallet to a supported network (${Object.values(SUPPORTED_CHAINS)
+            .filter((option): option is ChainConfig => Boolean(option?.name))
+            .map((option) => option.name)
+            .join(", ")}) before sending a batch.`,
         );
         return;
       }

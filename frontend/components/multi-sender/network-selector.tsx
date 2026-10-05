@@ -166,8 +166,10 @@ export function NetworkSelector({
                 "bg-slate-950 shadow-card",
               )}
             >
-              {SUPPORTED_CHAINS.map((option) => {
-                const active = option.id === chainId;
+              {Object.values(SUPPORTED_CHAINS)
+                .filter((option): option is ChainConfig => Boolean(option?.id))
+                .map((option) => {
+                  const active = option.id === chainId;
 
                 return (
                   <li key={option.id}>

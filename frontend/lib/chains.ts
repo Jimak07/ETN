@@ -92,20 +92,20 @@ const CHAINS_LIST: readonly ChainConfig[] = [
   BNB_SMART_CHAIN,
 ];
 
-export type SupportedChains = readonly ChainConfig[] & {
-  readonly [chainId: number]: ChainConfig | undefined;
-};
+export type SupportedChains = Record<number, ChainConfig | undefined>;
 
 /**
- * Every selectable network, Electroneum first.
+ * Every selectable network, Electroneum first, keyed by chain id.
  *
- * Acts as both an iterable array of supported chains and a dictionary mapping
- * chainId -> ChainConfig (e.g. SUPPORTED_CHAINS[chainId].multiSenderAddress).
+ * Dictionary mapping: chainId -> ChainConfig (e.g. SUPPORTED_CHAINS[chainId]?.multiSenderAddress).
+ * Use Object.values(SUPPORTED_CHAINS) when an array iteration is needed.
  */
-export const SUPPORTED_CHAINS: SupportedChains = Object.assign(
-  [...CHAINS_LIST],
-  Object.fromEntries(CHAINS_LIST.map((chain) => [chain.id, chain])),
-);
+export const SUPPORTED_CHAINS: SupportedChains = {
+  [ETN_MAINNET_CHAIN.id]: ETN_MAINNET_CHAIN,
+  [ETN_TESTNET_CHAIN.id]: ETN_TESTNET_CHAIN,
+  [ETHEREUM.id]: ETHEREUM,
+  [BNB_SMART_CHAIN.id]: BNB_SMART_CHAIN,
+};
 
 /** Chain id shown before a wallet reports one. */
 export const DEFAULT_CHAIN_ID = DEFAULT_ETN_CHAIN.id;
@@ -121,7 +121,7 @@ export function isSupportedChain(chainId: number | null | undefined): boolean {
 
 /** Chain descriptor for display, falling back to the default when nothing is connected. */
 export function getChainConfigOrDefault(chainId: number | null | undefined): ChainConfig {
-  return getChainConfig(chainId) ?? SUPPORTED_CHAINS[0];
+  return getChainConfig(chainId) ?? ETN_MAINNET_CHAIN;
 }
 
 export interface PopularToken {

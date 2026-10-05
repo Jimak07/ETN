@@ -44,8 +44,10 @@ const VIEM_CHAINS: Record<number, Chain> = {
 
 // Everything else in the registry, including networks added later: the shared
 // projection means a new chain needs an entry in `chains.ts` and nothing here.
-for (const config of SUPPORTED_CHAINS) {
-  if (!VIEM_CHAINS[config.id]) VIEM_CHAINS[config.id] = defineEvmChain(config);
+for (const config of Object.values(SUPPORTED_CHAINS)) {
+  if (config?.id && !VIEM_CHAINS[config.id]) {
+    VIEM_CHAINS[config.id] = defineEvmChain(config);
+  }
 }
 
 /** viem chain for an id, or null when the wallet is on an unsupported network. */

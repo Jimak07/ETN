@@ -23,6 +23,7 @@ import {
   SUPPORTED_CHAINS,
   getChainConfig,
   getChainConfigOrDefault,
+  type ChainConfig,
 } from "@/lib/chains";
 import { getViemChain, getViemChainOrDefault } from "@/lib/etn-chain";
 import { ETN_MAINNET, ETN_NATIVE_DECIMALS, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS } from "@/lib/etn";
@@ -62,12 +63,14 @@ function parseAddress(raw: string | undefined): Address | null {
  * Deployment addresses per supported chain, dynamically resolved from the network registry.
  */
 export const MULTISENDER_ADDRESSES: Readonly<Record<number, Address | null>> = Object.fromEntries(
-  SUPPORTED_CHAINS.map((chain) => [
-    chain.id,
-    chain.multiSenderAddress && isAddress(chain.multiSenderAddress, { strict: false })
-      ? getAddress(chain.multiSenderAddress)
-      : null,
-  ]),
+  Object.values(SUPPORTED_CHAINS)
+    .filter((chain): chain is ChainConfig => Boolean(chain?.id))
+    .map((chain) => [
+      chain.id,
+      chain.multiSenderAddress && isAddress(chain.multiSenderAddress, { strict: false })
+        ? getAddress(chain.multiSenderAddress)
+        : null,
+    ]),
 );
 
 /** Deployment address for a chain, dynamically fetched from the network registry. */
@@ -88,8 +91,8 @@ export function isMultiSenderConfigured(chainId: number | null | undefined): boo
 }
 
 /** True when at least one network has a deployment; drives the module-level notice. */
-export const hasAnyMultiSenderDeployment: boolean = SUPPORTED_CHAINS.some(
-  (chain) => Boolean(chain.multiSenderAddress),
+export const hasAnyMultiSenderDeployment: boolean = Object.values(SUPPORTED_CHAINS).some(
+  (chain) => Boolean(chain?.multiSenderAddress),
 );
 
 /** Mirrors the contract constant; the chain value wins when it can be read. */
