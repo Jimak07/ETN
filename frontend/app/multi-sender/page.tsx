@@ -10,24 +10,12 @@ import { BulkImportModal, type ImportMode } from "@/components/multi-sender/bulk
 import { NetworkSelector } from "@/components/multi-sender/network-selector";
 import { RecipientTable } from "@/components/multi-sender/recipient-table";
 import { SendPanel } from "@/components/multi-sender/send-panel";
-import { SummaryCards } from "@/components/multi-sender/summary-cards";
 import { TxModal } from "@/components/multi-sender/tx-modal";
 import { Notice } from "@/components/ui/notice";
 import { useMultiSender } from "@/hooks/use-multi-sender";
 import { useRecipientRows, type RecipientSeed } from "@/hooks/use-recipient-rows";
 import { cn } from "@/lib/cn";
 import { planBatches } from "@/lib/multi-sender/parse";
-
-/**
- * Multi-Sender module.
- *
- * Composition only: the validity rules are pure (`lib/multi-sender/parse`), the
- * wallet and send sequence live in `useMultiSender`, the row list lives in
- * `useRecipientRows`, and each card owns its own presentation. The page holds
- * exactly one piece of state of its own - whether the bulk import modal is open -
- * so validation, totals and the send call can never disagree about what is being
- * shipped.
- */
 
 const HIGHLIGHTS = [
   { icon: ShieldCheck, label: "Non-custodial", detail: "funds never touch the contract" },
@@ -66,15 +54,15 @@ export default function MultiSenderPage() {
     maxBatchSize,
     progress,
     send,
+    approve,
+    approving,
     reset,
     sendBusy,
     configured,
     configuredAnywhere,
   } = useMultiSender();
 
-  // Rows re-validate against the wallet and the active asset on every render: a
-  // different wallet changes which rows are self-transfers, and a token changes
-  // the decimals every amount is scaled by.
+  // Rows re-validate against the wallet and the active asset on every render/keystroke
   const { rows, parsed, update, addRow, appendRows, replaceRows, removeRow, applyUniformAmount } =
     useRecipientRows(decimals, account);
 
@@ -86,18 +74,17 @@ export default function MultiSenderPage() {
       else appendRows(imported);
       setBulkImportOpen(false);
     },
-    [appendRows, replaceRows],
+    [appendRows, replaceRows]
   );
 
   const handleSend = useCallback(() => {
     void send(parsed.valid);
   }, [parsed.valid, send]);
 
-  /**
-   * What the header badge claims about the wallet's network. An unsupported
-   * chain is named rather than hidden, because "which network am I signing on"
-   * is the single most consequential thing on this page.
-   */
+  const handleApprove = useCallback(() => {
+    void approve(parsed.totalWei);
+  }, [approve, parsed.totalWei]);
+
   const networkBadge =
     chainId === null
       ? "wallet not connected"
@@ -107,17 +94,18 @@ export default function MultiSenderPage() {
   const networkIsWarning = chainId !== null && (!chainOk || chain.testnet);
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+    <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
       <motion.div
         initial={reduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-        className="space-y-4 lg:space-y-6"
+        className="space-y-6"
       >
+        {/* Navigation & Header */}
         <header className="space-y-4">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-500 transition hover:text-cyan-300"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-cyan-300"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to ETN Pulse
@@ -126,23 +114,23 @@ export default function MultiSenderPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="flex items-center gap-2.5">
-                <h1 className="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
-                  Multi-Sender
+                <h1 className="text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl">
+                  Multi-Sender dApp
                 </h1>
                 <span
                   className={cn(
-                    "num rounded-full border px-2.5 py-1 text-[0.62rem] font-medium uppercase tracking-[0.14em]",
+                    "font-mono rounded-full border px-2.5 py-1 text-[0.62rem] font-medium uppercase tracking-[0.14em]",
                     networkIsWarning
-                      ? "border-status-degraded/40 bg-status-degraded/10 text-status-degraded"
-                      : "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+                      ? "border-amber-500/40 bg-amber-950/20 text-amber-300"
+                      : "border-cyan-500/30 bg-cyan-950/30 text-cyan-300"
                   )}
                 >
                   {networkBadge}
                 </span>
               </div>
-              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
-                Airdrop or pay hundreds of wallets in a single transaction. Build the list in the table, watch every
-                row validate, then sign once - the contract forwards each transfer atomically, or reverts the lot.
+              <p className="mt-1.5 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-400">
+                Bulk transfer native tokens, ERC-20 coins, or NFT collections in batch transactions.
+                Strictly non-custodial with automated checksum and address validation.
               </p>
             </div>
 
@@ -150,9 +138,9 @@ export default function MultiSenderPage() {
               href={chain.explorerUrl}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400 transition hover:border-cyan-500/40 hover:text-cyan-300"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-400 transition hover:border-cyan-500/40 hover:text-cyan-300"
             >
-              Block explorer <ExternalLink className="h-3 w-3" />
+              Block Explorer <ExternalLink className="h-3 w-3" />
             </a>
           </div>
 
@@ -170,16 +158,16 @@ export default function MultiSenderPage() {
           </div>
         </header>
 
+        {/* Network & Environment Notices */}
         {chainOk && chain.testnet ? (
           <Notice
             tone="amber"
             icon={<TriangleAlert className="h-4 w-4" />}
-            title="You are on testnet - this ETN has no value"
+            title="You are connected to Testnet"
             detail={
               <>
-                Batches are being signed against <span className="num">{chain.name}</span> at{" "}
-                <span className="num">{contractAddress ?? "no configured address"}</span>. Switch to Electroneum
-                Mainnet when you are ready to move real funds.
+                Batches are executed against <span className="font-mono">{chain.name}</span>. Switch to Electroneum
+                Mainnet when you are ready to disburse real mainnet funds.
               </>
             }
           />
@@ -189,116 +177,103 @@ export default function MultiSenderPage() {
           <Notice
             tone="amber"
             icon={<Info className="h-4 w-4" />}
-            title="No batch sender contract configured - sending is disabled"
+            title="No batch sender contract configured"
             detail={
               <>
-                Deploy <span className="num">contracts/src/PulseMultiSender.sol</span> (see{" "}
-                <span className="num">contracts/README.md</span>), then set{" "}
-                <span className="num">NEXT_PUBLIC_MULTISENDER_MAINNET</span>,{" "}
-                <span className="num">NEXT_PUBLIC_MULTISENDER_TESTNET</span> (plus{" "}
-                <span className="num">..._ETHEREUM</span> and <span className="num">..._BSC</span> if you deploy
-                there) in <span className="num">frontend/.env.local</span> and rebuild. Building the list and
-                validating it work without a deployment.
+                Deploy <span className="font-mono">PulseMultiSender.sol</span> on this network and configure the address
+                to enable live on-chain broadcasting.
               </>
             }
           />
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-5 lg:gap-6">
-          <div className="min-w-0 lg:col-span-3">
-            <RecipientTable
-              rows={rows}
-              parsed={parsed}
-              symbol={symbol}
-              decimals={decimals}
-              disabled={sendBusy}
-              onUpdate={update}
-              onRemove={removeRow}
-              onAdd={addRow}
-              onApplyUniformAmount={applyUniformAmount}
-              onBulkImport={() => setBulkImportOpen(true)}
-              asset={asset}
-              nftStandard={nftStandard}
-              nftTokenId={nftTokenId}
-              onNftTokenIdChange={setNftTokenId}
-            />
-          </div>
+        {/* Network Selection Bar */}
+        <NetworkSelector
+          chainId={chainId}
+          chain={chain}
+          chainOk={chainOk}
+          connected={account !== null}
+          switching={switching}
+          disabled={sendBusy}
+          onSelect={switchTo}
+        />
 
-          <div className="min-w-0 space-y-4 lg:col-span-2">
-            <NetworkSelector
-              chainId={chainId}
-              chain={chain}
-              chainOk={chainOk}
-              connected={account !== null}
-              switching={switching}
-              disabled={sendBusy}
-              onSelect={switchTo}
-            />
+        {/* STRICT TOP-TO-BOTTOM FLOW */}
+        <div className="space-y-6">
+          {/* 1. TOP SECTION: Asset Selection Card */}
+          <AssetSelector
+            asset={asset}
+            onAssetChange={setAsset}
+            chain={chain}
+            tokenAddress={tokenAddress}
+            onTokenAddressChange={setTokenAddress}
+            token={token}
+            disabled={sendBusy}
+            nftStandard={nftStandard}
+            onNftStandardChange={setNftStandard}
+          />
 
-            <AssetSelector
-              asset={asset}
-              onAssetChange={setAsset}
-              chain={chain}
-              tokenAddress={tokenAddress}
-              onTokenAddressChange={setTokenAddress}
-              token={token}
-              disabled={sendBusy}
-              nftStandard={nftStandard}
-              onNftStandardChange={setNftStandard}
-            />
+          {/* 2. MIDDLE SECTION: Recipient Entry Card with prominent Import CSV button */}
+          <RecipientTable
+            rows={rows}
+            parsed={parsed}
+            symbol={symbol}
+            decimals={decimals}
+            disabled={sendBusy}
+            onUpdate={update}
+            onRemove={removeRow}
+            onAdd={addRow}
+            onApplyUniformAmount={applyUniformAmount}
+            onBulkImport={() => setBulkImportOpen(true)}
+            asset={asset}
+            nftStandard={nftStandard}
+            nftTokenId={nftTokenId}
+            onNftTokenIdChange={setNftTokenId}
+          />
 
-            <SummaryCards
-              validCount={parsed.valid.length}
-              issueCount={parsed.issueCount}
-              totalWei={parsed.totalWei}
-              decimals={decimals}
-              symbol={symbol}
-              balance={account ? spendableBalance : null}
-              batchCount={batches.length}
-              maxBatchSize={maxBatchSize}
-              chainId={chainId}
-              configured={configured}
-            />
-
-            <SendPanel
-              asset={asset}
-              token={token}
-              symbol={symbol}
-              decimals={decimals}
-              recipientCount={parsed.valid.length}
-              invalidCount={parsed.issueCount}
-              rowCount={parsed.drafts.length}
-              batchCount={batches.length}
-              totalWei={parsed.totalWei}
-              balance={account ? spendableBalance : null}
-              account={account}
-              chainId={chainId}
-              chain={chain}
-              chainOk={chainOk}
-              switching={switching}
-              onSwitchChain={switchTo}
-              connecting={connecting}
-              connectionError={connectionError}
-              onConnect={connect}
-              configured={configured}
-              contractAddress={contractAddress}
-              busy={sendBusy}
-              onSend={handleSend}
-              nftStandard={nftStandard}
-              nftApproved={nftApproved}
-              nftTokenId={nftTokenId}
-            />
-          </div>
+          {/* 3. BOTTOM SECTION: Execution Card (Summary stats + Glowing Approve/Send buttons) */}
+          <SendPanel
+            asset={asset}
+            token={token}
+            symbol={symbol}
+            decimals={decimals}
+            recipientCount={parsed.valid.length}
+            invalidCount={parsed.issueCount}
+            rowCount={parsed.drafts.length}
+            batchCount={batches.length}
+            totalWei={parsed.totalWei}
+            balance={account ? spendableBalance : null}
+            account={account}
+            chainId={chainId}
+            chain={chain}
+            chainOk={chainOk}
+            switching={switching}
+            onSwitchChain={switchTo}
+            connecting={connecting}
+            connectionError={connectionError}
+            onConnect={connect}
+            configured={configured}
+            contractAddress={contractAddress}
+            busy={sendBusy}
+            onSend={handleSend}
+            onApprove={handleApprove}
+            approving={approving}
+            nftStandard={nftStandard}
+            nftApproved={nftApproved}
+            nftTokenId={nftTokenId}
+          />
         </div>
 
-        <footer className="flex flex-col gap-1 border-t border-slate-800/80 pt-4 text-[0.7rem] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+        {/* Footer */}
+        <footer className="flex flex-col gap-1 border-t border-slate-800/80 pt-4 text-[0.7rem] text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Transfers are irreversible once mined - always send a small test batch first.
+            Transactions are irreversible once broadcast and confirmed on the Electroneum network.
           </p>
-          <p className="num">ETN Pulse · Multi-Sender module</p>
+          <p className="font-mono">ETN Pulse · Multi-Sender Suite</p>
         </footer>
       </motion.div>
 
+      {/* Smart CSV Bulk Import Modal */}
       <BulkImportModal
         open={bulkImportOpen}
         onClose={() => setBulkImportOpen(false)}
@@ -309,6 +284,7 @@ export default function MultiSenderPage() {
         disabled={sendBusy}
       />
 
+      {/* Transaction Broadcasting Status Modal */}
       <TxModal
         progress={progress}
         symbol={symbol}

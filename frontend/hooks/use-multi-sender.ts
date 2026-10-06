@@ -907,13 +907,51 @@ export function useMultiSender() {
     ],
   );
 
+  const [approving, setApproving] = useState(false);
+
+  const approve = useCallback(
+    async (amountToApprove?: bigint) => {
+      if (!account || !provider || !contractAddress || !token.address || typeof chainId !== "number") return;
+      const wallet = getWalletClient(provider, account, chainId);
+      const client = getReadClient(chainId);
+      setApproving(true);
+      try {
+        if (asset === "nft") {
+          const hash = await setNftApprovalForAll(wallet, chainId, token.address, true);
+          if (client) await waitForReceipt(client, hash);
+          setNftApproved(true);
+        } else {
+          const allowance = token.allowance ?? 0n;
+          const target = amountToApprove ?? 0n;
+          if (allowance > 0n && target > 0n) {
+            const resetHash = await approveToken(wallet, chainId, token.address, 0n);
+            if (client) await waitForReceipt(client, resetHash);
+          }
+          const hash = await approveToken(wallet, chainId, token.address, target);
+          if (client) await waitForReceipt(client, hash);
+        }
+        await refreshToken();
+      } catch (error) {
+        setProgress((previous) => ({
+          ...previous,
+          phase: "error",
+          error: describeSendError(error),
+          finishedAt: Date.now(),
+        }));
+      } finally {
+        setApproving(false);
+      }
+    },
+    [account, asset, chainId, contractAddress, provider, refreshToken, token.address, token.allowance]
+  );
+
   const reset = useCallback(() => {
     explorerWatchRef.current?.abort();
     explorerWatchRef.current = null;
     setProgress(IDLE_PROGRESS);
   }, []);
 
-  const sendBusy = progress.phase === "signing" || progress.phase === "broadcasting";
+  const sendBusy = progress.phase === "signing" || progress.phase === "broadcasting" || approving;
 
   /** Everything the amount column and the totals are scaled by. */
   const decimals = asset === "native" ? chain.nativeCurrency.decimals : asset === "nft" ? 0 : token.decimals;
@@ -958,6 +996,8 @@ export function useMultiSender() {
     maxBatchSize,
     progress,
     send,
+    approve,
+    approving,
     reset,
     sendBusy,
     configured,

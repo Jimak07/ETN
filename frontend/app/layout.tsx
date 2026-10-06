@@ -2,6 +2,10 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const title = "ETN Pulse — Electroneum Smart Chain Monitor";
 const description =
@@ -31,7 +35,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={cn("dark", "font-sans", geist.variable)}>
       <body className="min-h-dvh bg-slate-950 font-sans text-slate-100 antialiased">
         {/* Ambient depth: cyan bloom + faint blueprint grid behind the UI. */}
         <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
