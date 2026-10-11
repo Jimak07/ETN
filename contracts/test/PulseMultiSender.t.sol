@@ -5,8 +5,10 @@ import { Test } from "forge-std/Test.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 
 import { PulseMultiSender } from "../src/PulseMultiSender.sol";
+import { MockNFT } from "../src/MockNFT.sol";
 
 /// Minimal ERC-20 so the suite does not depend on OpenZeppelin's test mocks.
 contract MockERC20 is ERC20 {
@@ -17,21 +19,53 @@ contract MockERC20 is ERC20 {
     }
 }
 
+/// Minimal ERC-1155 mock for testing multi-token edition transfers.
+contract MockERC1155 is ERC1155 {
+    constructor() ERC1155("") {}
+
+    function mint(address to, uint256 id, uint256 amount) external {
+        _mint(to, id, amount, "");
+    }
+}
+
 contract PulseMultiSenderTest is Test {
     PulseMultiSender internal sender;
     MockERC20 internal token;
+    MockNFT internal nft;
+    MockERC1155 internal multiToken;
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
 
     receive() external payable {}
 
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata) external pure returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
     function setUp() public {
         sender = new PulseMultiSender();
         token = new MockERC20();
+        nft = new MockNFT();
+        multiToken = new MockERC1155();
+
         vm.deal(address(this), 100 ether);
         token.mint(address(this), 1_000e18);
         token.approve(address(sender), type(uint256).max);
+
+        nft.mintBatch(address(this), 10);
+        nft.setApprovalForAll(address(sender), true);
+
+        multiToken.mint(address(this), 1, 1000);
+        multiToken.setApprovalForAll(address(sender), true);
     }
 
     function _list() internal view returns (address[] memory recipients, uint256[] memory amounts) {
@@ -147,5 +181,126 @@ contract PulseMultiSenderTest is Test {
 
         vm.expectRevert("zero amount");
         sender.batchSendERC20(address(token), recipients, amounts);
+    }
+
+    // -------------------------------------------------------------------------
+    // ERC-721 Tests
+    // -------------------------------------------------------------------------
+
+    function testBatchSendERC721TransfersNFTs() public {
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+
+        uint256[] memory tokenIds = new uint256[](2);
+        tokenIds[0] = 1;
+        tokenIds[1] = 2;
+
+        sender.batchSendERC721(address(nft), recipients, tokenIds);
+
+        assertEq(nft.ownerOf(1), alice);
+        assertEq(nft.ownerOf(2), bob);
+    }
+
+    function testBatchSendERC721RevertsOnLengthMismatch() public {
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = 1;
+
+        vm.expectRevert("length mismatch");
+        sender.batchSendERC721(address(nft), recipients, tokenIds);
+    }
+
+    function testBatchSendERC721RevertsOnZeroRecipient() public {
+        address[] memory recipients = new address[](1);
+        recipients[0] = address(0);
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = 1;
+
+        vm.expectRevert("zero recipient");
+        sender.batchSendERC721(address(nft), recipients, tokenIds);
+    }
+
+    function testBatchSendERC721RejectsOversizedBatch() public {
+        uint256 count = sender.MAX_NFT_BATCH_SIZE() + 1;
+        address[] memory recipients = new address[](count);
+        uint256[] memory tokenIds = new uint256[](count);
+        for (uint256 i; i < count; ++i) {
+            recipients[i] = address(uint160(i + 1));
+            tokenIds[i] = i + 1;
+        }
+
+        vm.expectRevert("batch too large");
+        sender.batchSendERC721(address(nft), recipients, tokenIds);
+    }
+
+    // -------------------------------------------------------------------------
+    // ERC-1155 Tests
+    // -------------------------------------------------------------------------
+
+    function testBatchSendERC1155TransfersTokens() public {
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 10;
+        amounts[1] = 20;
+
+        sender.batchSendERC1155(address(multiToken), 1, recipients, amounts);
+
+        assertEq(multiToken.balanceOf(alice, 1), 10);
+        assertEq(multiToken.balanceOf(bob, 1), 20);
+    }
+
+    function testBatchSendERC1155RevertsOnLengthMismatch() public {
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 10;
+
+        vm.expectRevert("length mismatch");
+        sender.batchSendERC1155(address(multiToken), 1, recipients, amounts);
+    }
+
+    function testBatchSendERC1155RevertsOnZeroRecipient() public {
+        address[] memory recipients = new address[](1);
+        recipients[0] = address(0);
+
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 10;
+
+        vm.expectRevert("zero recipient");
+        sender.batchSendERC1155(address(multiToken), 1, recipients, amounts);
+    }
+
+    function testBatchSendERC1155RevertsOnZeroAmount() public {
+        address[] memory recipients = new address[](1);
+        recipients[0] = alice;
+
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 0;
+
+        vm.expectRevert("zero amount");
+        sender.batchSendERC1155(address(multiToken), 1, recipients, amounts);
+    }
+
+    function testBatchSendERC1155RejectsOversizedBatch() public {
+        uint256 count = sender.MAX_NFT_BATCH_SIZE() + 1;
+        address[] memory recipients = new address[](count);
+        uint256[] memory amounts = new uint256[](count);
+        for (uint256 i; i < count; ++i) {
+            recipients[i] = address(uint160(i + 1));
+            amounts[i] = 1;
+        }
+
+        vm.expectRevert("batch too large");
+        sender.batchSendERC1155(address(multiToken), 1, recipients, amounts);
     }
 }

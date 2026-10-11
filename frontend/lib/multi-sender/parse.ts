@@ -209,7 +209,12 @@ function parseAddress(raw: string): { address: `0x${string}` | null; issue: RowI
   // what catches a munged mixed-case address (a strong typo signal).
   if (!isAddress(cleaned, { strict: false })) return { address: null, issue: "invalid-address" };
   try {
-    return { address: getAddress(cleaned), issue: null };
+    const checksummed = getAddress(cleaned);
+    // Explicitly reject burn/null address to prevent accidental asset destruction
+    if (checksummed === "0x0000000000000000000000000000000000000000") {
+      return { address: null, issue: "invalid-address" };
+    }
+    return { address: checksummed, issue: null };
   } catch {
     return { address: null, issue: "invalid-checksum" };
   }
@@ -391,6 +396,8 @@ export interface RecipientBatch {
   totalWei: bigint;
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 /**
  * Splits a validated list into contract-sized batches.
  *
@@ -398,6 +405,9 @@ export interface RecipientBatch {
  * call, so lists longer than one batch are sent as sequential transactions and
  * the modal tracks the run. Order is preserved, so a partially-sent run can be
  * resumed by filtering out the rows that already landed.
+ *
+ * Enforces defensive runtime type guards to guarantee that tampered or malformed
+ * memory objects never generate broken or hazardous on-chain transaction payloads.
  */
 export function planBatches(rows: readonly RecipientRow[], maxBatchSize: number): RecipientBatch[] {
   const limit = Math.max(1, Math.floor(maxBatchSize));
@@ -410,8 +420,20 @@ export function planBatches(rows: readonly RecipientRow[], maxBatchSize: number)
     let totalWei = 0n;
 
     for (const row of slice) {
-      if (row.address === null || row.amountWei === null) continue;
-      recipients.push(row.address);
+      if (!row || typeof row !== "object") continue;
+      if (typeof row.address !== "string" || !isAddress(row.address, { strict: false })) continue;
+      if (typeof row.amountWei !== "bigint" || row.amountWei <= 0n) continue;
+
+      let checksummed: `0x${string}`;
+      try {
+        checksummed = getAddress(row.address);
+      } catch {
+        continue;
+      }
+
+      if (checksummed === ZERO_ADDRESS) continue;
+
+      recipients.push(checksummed);
       amounts.push(row.amountWei);
       totalWei += row.amountWei;
     }

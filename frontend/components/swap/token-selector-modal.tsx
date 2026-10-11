@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   Coins,
   ExternalLink,
@@ -10,6 +11,7 @@ import {
   Loader2,
   Plus,
   Search,
+  ShieldAlert,
   Sparkles,
   X,
 } from "lucide-react";
@@ -19,7 +21,7 @@ import { formatUnits, isAddress, type Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { DEFAULT_ECOSYSTEM_TOKENS, type TokenInfo } from "@/lib/constants/electroswap";
+import { CANONICAL_ECOSYSTEM_SYMBOLS, DEFAULT_ECOSYSTEM_TOKENS, type TokenInfo } from "@/lib/constants/electroswap";
 import { ETN_MAINNET } from "@/lib/etn";
 import { getReadClient } from "@/lib/multi-sender/contract";
 import { verifyOnChainToken } from "@/lib/swap/tokens";
@@ -260,9 +262,21 @@ export function TokenSelectorModal({
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[0.68rem] text-amber-300/90 leading-relaxed">
-                  Anyone can create an ERC-20 token on Electroneum. Always verify the contract address before trading.
-                </div>
+                {CANONICAL_ECOSYSTEM_SYMBOLS.has(discoveredToken.symbol.toUpperCase()) ? (
+                  <div className="rounded-lg border border-rose-500/50 bg-rose-950/40 p-2.5 text-[0.68rem] text-rose-200 leading-relaxed space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-rose-300">
+                      <ShieldAlert className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                      <span>Critical Warning: Symbol Impersonation!</span>
+                    </div>
+                    <p>
+                      This custom contract uses the symbol <strong>{discoveredToken.symbol}</strong>, which matches an official ecosystem asset. Confirm this address on Blockscout before proceeding!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[0.68rem] text-amber-300/90 leading-relaxed">
+                    Anyone can create an ERC-20 token on Electroneum. Always verify the contract address before trading.
+                  </div>
+                )}
 
                 <Button
                   type="button"
@@ -328,9 +342,15 @@ export function TokenSelectorModal({
                                   Native
                                 </span>
                               ) : token.isCustom ? (
-                                <span className="rounded bg-amber-950 px-1 py-0.2 text-[0.6rem] font-medium text-amber-400 border border-amber-500/30">
-                                  Custom
-                                </span>
+                                CANONICAL_ECOSYSTEM_SYMBOLS.has(token.symbol.toUpperCase()) ? (
+                                  <span className="rounded bg-rose-950 px-1 py-0.2 text-[0.6rem] font-medium text-rose-300 border border-rose-500/40">
+                                    ⚠️ Impersonation Risk
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-amber-950 px-1 py-0.2 text-[0.6rem] font-medium text-amber-400 border border-amber-500/30">
+                                    Unverified
+                                  </span>
+                                )
                               ) : null}
                             </div>
                             <p className="truncate text-[0.68rem] text-slate-400">

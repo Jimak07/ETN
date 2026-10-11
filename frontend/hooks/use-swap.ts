@@ -75,6 +75,8 @@ export function useSwap() {
   // --- Allowance State ---
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [approving, setApproving] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [approvalType, setApprovalType] = useState<"exact" | "unlimited">("exact");
 
   // --- Transaction Execution State ---
   const [swapPhase, setSwapPhase] = useState<SwapPhase>("idle");
@@ -392,7 +394,7 @@ export function useSwap() {
     return allowance < payAmountWei;
   }, [payToken.isNative, payAmountWei, allowance]);
 
-  // Approve Token Action
+  // Approve Token Action (Exact allowance by default to protect against router compromise)
   const approve = useCallback(async () => {
     if (!account || !provider || payToken.isNative) return;
     setApproving(true);
@@ -400,14 +402,30 @@ export function useSwap() {
 
     const client = getReadClient(ETN_MAINNET.id);
     const wallet = getWalletClient(provider, account, ETN_MAINNET.id);
+    const targetAmount = approvalType === "exact" ? payAmountWei : maxUint256;
 
     try {
+      const currentAllowance = allowance ?? 0n;
+      // Some tokens (e.g. USDT) revert if non-zero allowance is changed to non-zero without reset to 0
+      if (currentAllowance > 0n && targetAmount > 0n) {
+        const resetHash = await wallet.writeContract({
+          account,
+          chain: null,
+          address: getAddress(payToken.address),
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [ELECTROSWAP_V2_ROUTER_ADDRESS, 0n],
+        });
+        if (client) await waitForReceipt(client, resetHash);
+      }
+
       const hash = await wallet.writeContract({
         account,
+        chain: null,
         address: getAddress(payToken.address),
         abi: erc20Abi,
         functionName: "approve",
-        args: [ELECTROSWAP_V2_ROUTER_ADDRESS, maxUint256],
+        args: [ELECTROSWAP_V2_ROUTER_ADDRESS, targetAmount],
       });
 
       if (client) {
@@ -418,6 +436,36 @@ export function useSwap() {
       setTxError(err instanceof Error ? err.message : "Approval failed.");
     } finally {
       setApproving(false);
+    }
+  }, [account, payToken, provider, approvalType, payAmountWei, allowance, refreshAllowance]);
+
+  // Revoke Allowance Action (Resets allowance to 0 for security)
+  const revokeAllowance = useCallback(async () => {
+    if (!account || !provider || payToken.isNative) return;
+    setRevoking(true);
+    setTxError(null);
+
+    const client = getReadClient(ETN_MAINNET.id);
+    const wallet = getWalletClient(provider, account, ETN_MAINNET.id);
+
+    try {
+      const hash = await wallet.writeContract({
+        account,
+        chain: null,
+        address: getAddress(payToken.address),
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [ELECTROSWAP_V2_ROUTER_ADDRESS, 0n],
+      });
+
+      if (client) {
+        await waitForReceipt(client, hash);
+      }
+      await refreshAllowance();
+    } catch (err) {
+      setTxError(err instanceof Error ? err.message : "Revoking allowance failed.");
+    } finally {
+      setRevoking(false);
     }
   }, [account, payToken, provider, refreshAllowance]);
 
@@ -520,6 +568,10 @@ export function useSwap() {
     needsApproval,
     approving,
     approve,
+    approvalType,
+    setApprovalType,
+    revokeAllowance,
+    revoking,
 
     swap,
     swapPhase,

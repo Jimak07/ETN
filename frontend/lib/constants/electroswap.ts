@@ -161,3 +161,15 @@ export const DEFAULT_SLIPPAGE = 0.5;
  * Default transaction deadline in minutes (20 minutes).
  */
 export const DEFAULT_DEADLINE_MINUTES = 20;
+
+/**
+ * Official canonical ecosystem symbols on Electroneum.
+ * Used to detect malicious/spoofed custom tokens attempting symbol impersonation.
+ */
+export const CANONICAL_ECOSYSTEM_SYMBOLS: ReadonlySet<string> = new Set([
+  "ETN",
+  "WETN",
+  "BOLT",
+  "PDY",
+  "BUDDY",
+]);

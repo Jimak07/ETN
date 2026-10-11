@@ -259,9 +259,15 @@ export async function getSwapQuote(
       };
     }
 
-    // Apply slippage tolerance: amountOutMin = amountOut * (1 - slippage / 100)
-    const basisPoints = BigInt(Math.max(1, Math.min(10000, Math.round(slippagePercent * 100))));
-    const amountOutMinWei = (amountOutWei * (10000n - basisPoints)) / 10000n;
+    // Clamp slippage between 0.05% and 20% to prevent extreme or zero slippage
+    const clampedSlippage = Math.max(0.05, Math.min(20, slippagePercent));
+    const basisPoints = BigInt(Math.round(clampedSlippage * 100));
+    let amountOutMinWei = (amountOutWei * (10000n - basisPoints)) / 10000n;
+
+    // MEV Guardrail: Enforce non-zero minimum output to strictly prevent 100% sandwich frontrunning
+    if (amountOutMinWei <= 0n) {
+      amountOutMinWei = 1n;
+    }
 
     // Convert to floating point for display rate
     const inScaled = Number(amountInWei) / 10 ** tokenIn.decimals;
@@ -302,6 +308,7 @@ export async function getSwapQuote(
 
 /**
  * Execute a swap transaction on Electroneum Mainnet.
+ * Includes defensive input validation and MEV sandwich protection.
  */
 export async function executeSwap({
   wallet,
@@ -319,7 +326,31 @@ export async function executeSwap({
   deadlineMinutes?: number;
 }): Promise<Hash> {
   const { route, amountInWei, amountOutMinWei } = quote;
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineMinutes * 60);
+
+  // Defensive sanity checks against state manipulation
+  if (!account || account === ZERO_ADDRESS) {
+    throw new Error("Invalid sender address.");
+  }
+  if (amountInWei <= 0n) {
+    throw new Error("Swap input amount must be greater than zero.");
+  }
+  if (!route.isWrap && !route.isUnwrap) {
+    if (amountOutMinWei <= 0n) {
+      throw new Error("Minimum output amount must be greater than zero to protect against frontrunning.");
+    }
+    if (!Array.isArray(route.path) || route.path.length < 2) {
+      throw new Error("Invalid swap route path.");
+    }
+    for (const hop of route.path) {
+      if (!hop || hop === ZERO_ADDRESS) {
+        throw new Error("Malformed address in swap route path.");
+      }
+    }
+  }
+
+  // Strictly clamp deadline between 1 and 30 minutes to prevent miner holding
+  const clampedDeadline = Math.max(1, Math.min(30, deadlineMinutes));
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + clampedDeadline * 60);
 
   // 1. Direct Wrap ETN -> WETN
   if (route.isWrap) {

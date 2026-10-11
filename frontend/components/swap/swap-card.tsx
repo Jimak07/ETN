@@ -2,15 +2,18 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowDownUp,
   ArrowRight,
   ChevronDown,
   Coins,
+  ExternalLink,
   Fuel,
   Info,
   Loader2,
   RefreshCw,
   Settings2,
+  ShieldAlert,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -20,7 +23,8 @@ import { formatUnits } from "viem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import type { TokenInfo } from "@/lib/constants/electroswap";
+import { CANONICAL_ECOSYSTEM_SYMBOLS, type TokenInfo } from "@/lib/constants/electroswap";
+import { ETN_MAINNET } from "@/lib/etn";
 import { useSwap } from "@/hooks/use-swap";
 import { SlippagePopover } from "./slippage-popover";
 import { SwapTxModal } from "./swap-tx-modal";
@@ -62,9 +66,14 @@ export function SwapCard() {
     deadlineMinutes,
     setDeadlineMinutes,
 
+    allowance,
     needsApproval,
     approving,
     approve,
+    approvalType,
+    setApprovalType,
+    revokeAllowance,
+    revoking,
 
     swap,
     swapPhase,
@@ -230,6 +239,21 @@ export function SwapCard() {
     return map;
   }, [payToken.address, receiveToken.address, payBalance, receiveBalance]);
 
+  // Security Check: Sybil / Symbol impersonation detection
+  const impersonatedToken = useMemo(() => {
+    if (payToken.isCustom && CANONICAL_ECOSYSTEM_SYMBOLS.has(payToken.symbol.toUpperCase())) {
+      return payToken;
+    }
+    if (receiveToken.isCustom && CANONICAL_ECOSYSTEM_SYMBOLS.has(receiveToken.symbol.toUpperCase())) {
+      return receiveToken;
+    }
+    return null;
+  }, [payToken, receiveToken]);
+
+  const customTokenActive = useMemo(() => {
+    return payToken.isCustom ? payToken : receiveToken.isCustom ? receiveToken : null;
+  }, [payToken, receiveToken]);
+
   return (
     <div className="relative mx-auto w-full max-w-lg">
       {/* Background card container */}
@@ -268,6 +292,11 @@ export function SwapCard() {
               onSlippageChange={setSlippage}
               deadlineMinutes={deadlineMinutes}
               onDeadlineChange={setDeadlineMinutes}
+              approvalType={approvalType}
+              onApprovalTypeChange={setApprovalType}
+              allowance={allowance}
+              onRevokeAllowance={revokeAllowance}
+              revoking={revoking}
             />
           </div>
         </div>
@@ -439,6 +468,51 @@ export function SwapCard() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Sybil / Impersonation Critical Alert */}
+        {impersonatedToken ? (
+          <div className="mt-3 rounded-xl border border-rose-500/50 bg-rose-950/30 p-3 text-xs text-rose-200 space-y-1">
+            <div className="flex items-center gap-2 font-bold text-rose-300">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-rose-400" />
+              <span>Potential Spoofed / Impersonated Token Alert</span>
+            </div>
+            <p className="text-[0.68rem] text-rose-300/90 leading-relaxed">
+              This custom contract is using the ticker symbol <strong className="font-mono text-rose-100">{impersonatedToken.symbol}</strong>, which belongs to an official ecosystem token. Always verify the contract address before trading.
+            </p>
+            <div className="pt-0.5 flex items-center justify-between font-mono text-[0.62rem] text-rose-400">
+              <span className="truncate">{impersonatedToken.address}</span>
+              <a
+                href={`${ETN_MAINNET.explorerUrl}/token/${impersonatedToken.address}`}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-0.5 text-cyan-300 hover:underline shrink-0 ml-2"
+              >
+                Explorer <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            </div>
+          </div>
+        ) : customTokenActive ? (
+          <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-xs text-amber-200 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>Unverified Custom Token Warning</span>
+            </div>
+            <p className="text-[0.68rem] text-amber-300/90 leading-relaxed">
+              You are trading a custom token ({customTokenActive.symbol}). Anyone can create an ERC-20 token on Electroneum with any name.
+            </p>
+            <div className="pt-0.5 flex items-center justify-between font-mono text-[0.62rem] text-amber-400">
+              <span className="truncate">{customTokenActive.address}</span>
+              <a
+                href={`${ETN_MAINNET.explorerUrl}/token/${customTokenActive.address}`}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-0.5 text-cyan-300 hover:underline shrink-0 ml-2"
+              >
+                Verify on Explorer <ExternalLink className="h-2.5 w-2.5" />
+              </a>
             </div>
           </div>
         ) : null}

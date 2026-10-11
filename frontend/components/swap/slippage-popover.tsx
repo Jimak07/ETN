@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, Clock, Settings2, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, Clock, Loader2, Lock, Settings2, ShieldCheck, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,11 @@ interface SlippagePopoverProps {
   onSlippageChange: (val: number) => void;
   deadlineMinutes: number;
   onDeadlineChange: (val: number) => void;
+  approvalType?: "exact" | "unlimited";
+  onApprovalTypeChange?: (val: "exact" | "unlimited") => void;
+  allowance?: bigint | null;
+  onRevokeAllowance?: () => void;
+  revoking?: boolean;
 }
 
 export function SlippagePopover({
@@ -24,6 +29,11 @@ export function SlippagePopover({
   onSlippageChange,
   deadlineMinutes,
   onDeadlineChange,
+  approvalType = "exact",
+  onApprovalTypeChange,
+  allowance,
+  onRevokeAllowance,
+  revoking = false,
 }: SlippagePopoverProps) {
   const reduceMotion = useReducedMotion();
   const [customSlippage, setCustomSlippage] = useState<string>("");
@@ -163,18 +173,81 @@ export function SlippagePopover({
                 <Input
                   type="number"
                   min="1"
-                  max="180"
+                  max="30"
                   value={deadlineMinutes}
                   onChange={(e) => {
                     const parsed = Number.parseInt(e.target.value, 10);
                     if (!Number.isNaN(parsed) && parsed > 0) {
-                      onDeadlineChange(parsed);
+                      onDeadlineChange(Math.max(1, Math.min(30, parsed)));
                     }
                   }}
                   className="h-8 border-slate-800 bg-slate-950/80 text-xs font-mono"
                 />
                 <span className="text-xs text-slate-400 shrink-0">minutes</span>
               </div>
+            </div>
+
+            {/* Approval Security Policy */}
+            <div className="space-y-2 pt-2 border-t border-slate-800/60">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" /> Approval Policy
+                </span>
+                <span className="text-[0.68rem] text-slate-400 capitalize">{approvalType}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onApprovalTypeChange?.("exact")}
+                  className={cn(
+                    "rounded-lg border py-1.5 px-2 text-[0.68rem] font-medium transition text-center",
+                    approvalType === "exact"
+                      ? "border-cyan-500/50 bg-cyan-500/20 text-cyan-200"
+                      : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                  )}
+                >
+                  Exact (Safe)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onApprovalTypeChange?.("unlimited")}
+                  className={cn(
+                    "rounded-lg border py-1.5 px-2 text-[0.68rem] font-medium transition text-center",
+                    approvalType === "unlimited"
+                      ? "border-amber-500/50 bg-amber-500/20 text-amber-200"
+                      : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                  )}
+                >
+                  Unlimited
+                </button>
+              </div>
+
+              <p className="text-[0.62rem] text-slate-500 leading-tight">
+                {approvalType === "exact"
+                  ? "Exact approval authorizes only the specific trade sum, protecting your wallet against future router exploits."
+                  : "Unlimited approval saves future approval transactions, but exposes funds if the router is compromised."}
+              </p>
+
+              {/* Revoke Allowance Utility */}
+              {allowance && allowance > 0n ? (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    disabled={revoking}
+                    onClick={onRevokeAllowance}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-950/20 py-1.5 text-[0.68rem] font-semibold text-rose-300 hover:bg-rose-950/40 hover:border-rose-500/50 transition disabled:opacity-50"
+                  >
+                    {revoking ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3 w-3" />
+                    )}
+                    Revoke Router Allowance (Set to 0)
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.div>
