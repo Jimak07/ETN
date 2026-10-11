@@ -8,6 +8,7 @@ import { useCallback, useMemo, useState } from "react";
 import { AssetSelector } from "@/components/multi-sender/asset-selector";
 import { BulkImportModal, type ImportMode } from "@/components/multi-sender/bulk-import-modal";
 import { NetworkSelector } from "@/components/multi-sender/network-selector";
+import { QuickPasteModal } from "@/components/multi-sender/quick-paste-modal";
 import { RecipientTable } from "@/components/multi-sender/recipient-table";
 import { SendPanel } from "@/components/multi-sender/send-panel";
 import { TxModal } from "@/components/multi-sender/tx-modal";
@@ -26,6 +27,7 @@ const HIGHLIGHTS = [
 export default function MultiSenderPage() {
   const reduceMotion = useReducedMotion();
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [quickPasteOpen, setQuickPasteOpen] = useState(false);
 
   const {
     account,
@@ -51,6 +53,7 @@ export default function MultiSenderPage() {
     symbol,
     decimals,
     spendableBalance,
+    nativeBalance,
     maxBatchSize,
     progress,
     send,
@@ -63,8 +66,22 @@ export default function MultiSenderPage() {
   } = useMultiSender();
 
   // Rows re-validate against the wallet and the active asset on every render/keystroke
-  const { rows, parsed, update, addRow, appendRows, replaceRows, removeRow, applyUniformAmount } =
-    useRecipientRows(decimals, account);
+  const {
+    rows,
+    parsed,
+    update,
+    addRow,
+    appendRows,
+    replaceRows,
+    removeRow,
+    applyUniformAmount,
+    autoFillTokenIds,
+    removeInvalidRows,
+    removeDuplicates,
+    mergeDuplicates,
+    clearAll,
+    exportCsv,
+  } = useRecipientRows(decimals, account);
 
   const batches = useMemo(() => planBatches(parsed.valid, maxBatchSize), [maxBatchSize, parsed.valid]);
 
@@ -73,6 +90,7 @@ export default function MultiSenderPage() {
       if (mode === "replace") replaceRows(imported);
       else appendRows(imported);
       setBulkImportOpen(false);
+      setQuickPasteOpen(false);
     },
     [appendRows, replaceRows]
   );
@@ -225,6 +243,14 @@ export default function MultiSenderPage() {
             onAdd={addRow}
             onApplyUniformAmount={applyUniformAmount}
             onBulkImport={() => setBulkImportOpen(true)}
+            onQuickPaste={() => setQuickPasteOpen(true)}
+            onAutoFillTokenIds={autoFillTokenIds}
+            onRemoveInvalidRows={removeInvalidRows}
+            onRemoveDuplicates={removeDuplicates}
+            onMergeDuplicates={mergeDuplicates}
+            onClearAll={clearAll}
+            onExportCsv={exportCsv}
+            selfAddress={account}
             asset={asset}
             nftStandard={nftStandard}
             nftTokenId={nftTokenId}
@@ -243,6 +269,7 @@ export default function MultiSenderPage() {
             batchCount={batches.length}
             totalWei={parsed.totalWei}
             balance={account ? spendableBalance : null}
+            nativeBalance={account ? nativeBalance : null}
             account={account}
             chainId={chainId}
             chain={chain}
@@ -273,6 +300,14 @@ export default function MultiSenderPage() {
         </footer>
       </motion.div>
 
+      {/* Plaintext / Quick Paste Dialog */}
+      <QuickPasteModal
+        open={quickPasteOpen}
+        onClose={() => setQuickPasteOpen(false)}
+        onImport={handleImport}
+        currentRowsCount={rows.length}
+      />
+
       {/* Smart CSV Bulk Import Modal */}
       <BulkImportModal
         open={bulkImportOpen}
@@ -292,6 +327,9 @@ export default function MultiSenderPage() {
         decimals={decimals}
         chainId={chainId}
         onClose={reset}
+        recipients={parsed.valid}
+        asset={asset}
+        nftStandard={nftStandard}
       />
     </main>
   );

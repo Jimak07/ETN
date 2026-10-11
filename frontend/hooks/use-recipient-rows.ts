@@ -9,26 +9,10 @@ import {
   type RecipientDraft,
 } from "@/lib/multi-sender/parse";
 
-/**
- * The recipient table's rows and everything that edits them.
- *
- * Rows are held as raw strings and validated on every render, the same way the
- * pasted-list parser worked: the table has to answer "is this row sendable?" on
- * each keystroke, so there is no separate "validate" step that could be skipped
- * and no place for a half-parsed row to hide.
- *
- * Ids are generated here rather than derived from the row index because rows are
- * removed and appended: an index-keyed list makes React reuse the wrong input
- * when a row above the cursor disappears, which shows up as text jumping between
- * wallets.
- */
-
-/** How many blank rows a fresh table starts with, so it reads as a form. */
 const INITIAL_ROWS = 3;
 
 let sequence = 0;
 
-/** A new, empty row. Exported so the page can append without reaching into state. */
 export function createDraftRow(): RecipientDraft {
   sequence += 1;
   return { id: `recipient-${sequence}`, address: "", amount: "" };
@@ -38,7 +22,6 @@ export function createDraftRows(count: number): RecipientDraft[] {
   return Array.from({ length: Math.max(0, Math.floor(count)) }, createDraftRow);
 }
 
-/** A row as handed in by an importer: the hook owns ids, so callers never invent one. */
 export type RecipientSeed = Omit<RecipientDraft, "id">;
 
 export interface RecipientRowsApi {
@@ -49,9 +32,23 @@ export interface RecipientRowsApi {
   appendRows: (rows: readonly RecipientSeed[]) => void;
   replaceRows: (rows: readonly RecipientSeed[]) => void;
   removeRow: (id: string) => void;
-  /** Sets the same amount on every row, for an even airdrop. */
   applyUniformAmount: (amount: string) => void;
+  autoFillTokenIds: (startId: number) => void;
+  removeInvalidRows: () => void;
+  removeDuplicates: () => void;
+  mergeDuplicates: (isErc721?: boolean) => void;
+  clearAll: () => void;
+  exportCsv: (symbol: string, isErc721?: boolean) => void;
   clear: () => void;
+}
+
+function sumAmounts(a: string, b: string): string {
+  const numA = Number.parseFloat(a.replace(/,/g, ""));
+  const numB = Number.parseFloat(b.replace(/,/g, ""));
+  if (Number.isNaN(numA)) return b;
+  if (Number.isNaN(numB)) return a;
+  const sum = numA + numB;
+  return Number.isInteger(sum) ? sum.toString() : sum.toFixed(6).replace(/\.?0+$/, "");
 }
 
 export function useRecipientRows(
@@ -68,9 +65,6 @@ export function useRecipientRows(
   }, []);
 
   const addRow = useCallback(() => {
-    // The table's button is already disabled at the cap; enforcing the same rule
-    // one layer down is what stops a future caller from growing the list past
-    // what a block can carry.
     setRows((previous) =>
       previous.length >= MAX_RECIPIENT_ROWS ? previous : [...previous, createDraftRow()],
     );
@@ -78,23 +72,49 @@ export function useRecipientRows(
 
   const appendRows = useCallback((incoming: readonly RecipientSeed[]) => {
     if (incoming.length === 0) return;
-    // Fresh ids: an import must never collide with a row already in the table.
-    setRows((previous) => [
-      ...previous,
-      ...incoming.map((row) => ({ ...row, id: createDraftRow().id })),
-    ]);
+    setRows((previous) => {
+      // If previous only has a single pristine row, replace it instead of keeping an empty row on top
+      const filteredPrev =
+        previous.length === 1 && !previous[0].address.trim() && !previous[0].amount.trim()
+          ? []
+          : previous;
+      const capacity = MAX_RECIPIENT_ROWS - filteredPrev.length;
+      const allowed = incoming.slice(0, Math.max(0, capacity));
+      return [
+        ...filteredPrev,
+        ...allowed.map((row) => ({ ...row, id: createDraftRow().id })),
+      ];
+    });
   }, []);
 
   const replaceRows = useCallback((incoming: readonly RecipientSeed[]) => {
-    setRows(incoming.map((row) => ({ ...row, id: createDraftRow().id })));
+    const allowed = incoming.slice(0, MAX_RECIPIENT_ROWS);
+    setRows(allowed.length > 0 ? allowed.map((row) => ({ ...row, id: createDraftRow().id })) : createDraftRows(1));
   }, []);
 
   const removeRow = useCallback((id: string) => {
-    setRows((previous) => previous.filter((row) => row.id !== id));
+    setRows((previous) => {
+      const remaining = previous.filter((row) => row.id !== id);
+      return remaining.length > 0 ? remaining : createDraftRows(1);
+    });
   }, []);
 
   const applyUniformAmount = useCallback((amount: string) => {
     setRows((previous) => previous.map((row) => ({ ...row, amount })));
+  }, []);
+
+  const autoFillTokenIds = useCallback((startId: number) => {
+    const validStart = Number.isInteger(startId) && startId >= 0 ? startId : 1;
+    setRows((previous) =>
+      previous.map((row, index) => ({
+        ...row,
+        amount: String(validStart + index),
+      })),
+    );
+  }, []);
+
+  const clearAll = useCallback(() => {
+    setRows(createDraftRows(1));
   }, []);
 
   const clear = useCallback(() => setRows([]), []);
@@ -104,5 +124,102 @@ export function useRecipientRows(
     [rows, decimals, selfAddress],
   );
 
-  return { rows, parsed, update, addRow, appendRows, replaceRows, removeRow, applyUniformAmount, clear };
+  const removeInvalidRows = useCallback(() => {
+    setRows((previous) => {
+      const validRows = previous.filter((_, idx) => {
+        const draftRow = parsed.drafts[idx];
+        if (!draftRow) return false;
+        // Keep rows that are completely valid
+        return draftRow.issue === null && draftRow.address !== null && draftRow.amountWei !== null;
+      });
+      return validRows.length > 0 ? validRows : createDraftRows(1);
+    });
+  }, [parsed.drafts]);
+
+  const removeDuplicates = useCallback(() => {
+    setRows((previous) => {
+      const seen = new Set<string>();
+      const deduplicated: RecipientDraft[] = [];
+      for (const row of previous) {
+        const key = row.address.trim().toLowerCase();
+        if (!key) {
+          deduplicated.push(row);
+          continue;
+        }
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduplicated.push(row);
+        }
+      }
+      return deduplicated.length > 0 ? deduplicated : createDraftRows(1);
+    });
+  }, []);
+
+  const mergeDuplicates = useCallback((isErc721 = false) => {
+    setRows((previous) => {
+      if (isErc721) {
+        // In ERC-721, each row is a unique NFT token ID, so merging values is not numeric summation
+        const seen = new Set<string>();
+        const deduped = previous.filter((row) => {
+          const key = row.address.trim().toLowerCase();
+          if (!key) return true;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        return deduped.length > 0 ? deduped : createDraftRows(1);
+      }
+
+      const map = new Map<string, RecipientDraft>();
+      for (const row of previous) {
+        const key = row.address.trim().toLowerCase();
+        if (!key) continue;
+        if (map.has(key)) {
+          const existing = map.get(key)!;
+          const mergedAmount = sumAmounts(existing.amount, row.amount);
+          map.set(key, { ...existing, amount: mergedAmount });
+        } else {
+          map.set(key, { ...row, id: createDraftRow().id });
+        }
+      }
+
+      const merged = Array.from(map.values());
+      return merged.length > 0 ? merged : createDraftRows(1);
+    });
+  }, []);
+
+  const exportCsv = useCallback((symbol: string, isErc721 = false) => {
+    const nonBlank = rows.filter((r) => r.address.trim() || r.amount.trim());
+    if (nonBlank.length === 0) return;
+    const header = `address,${isErc721 ? "token_id" : `amount_${symbol}`}`;
+    const lines = nonBlank.map((r) => `"${r.address.trim()}","${r.amount.trim()}"`);
+    const content = [header, ...lines].join("\n");
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `recipients-export-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [rows]);
+
+  return {
+    rows,
+    parsed,
+    update,
+    addRow,
+    appendRows,
+    replaceRows,
+    removeRow,
+    applyUniformAmount,
+    autoFillTokenIds,
+    removeInvalidRows,
+    removeDuplicates,
+    mergeDuplicates,
+    clearAll,
+    exportCsv,
+    clear,
+  };
 }

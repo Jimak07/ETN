@@ -124,10 +124,10 @@ function tallyRow(row: RecipientRow, seen: Set<string>, self: string | null, tal
   if (row.amountWei !== null) tally.totalWei += row.amountWei;
 }
 
-const DELIMITER = /[,;\t]+/;
+const DELIMITER = /[,;\t:=]+/;
 const SPACE_DELIMITER = /\s+/;
 const ADDRESS_HEADER = new Set(["address", "addresses", "recipient", "recipients", "wallet", "to"]);
-const AMOUNT_HEADER = new Set(["amount", "amounts", "value", "values", "quantity", "qty", "tokens", "etn"]);
+const AMOUNT_HEADER = new Set(["amount", "amounts", "value", "values", "quantity", "qty", "tokens", "token_id", "tokenid", "etn"]);
 
 function stripQuotes(value: string): string {
   if (value.length >= 2) {
@@ -143,10 +143,8 @@ function stripQuotes(value: string): string {
 /**
  * Splits one line into fields.
  *
- * Comma/semicolon/tab wins when present; otherwise runs of whitespace, because
- * both `0xabc...,1.5` and `0xabc... 1.5` are pasted in practice. A comma is
- * never treated as a decimal separator: doing so would silently turn `0xabc,1,5`
- * into a 1.5 ETN payment to someone who typed 1.
+ * Comma/semicolon/tab/colon/equals wins when present; otherwise runs of whitespace, because
+ * `0xabc, 1.5`, `0xabc:1.5`, `0xabc = 1.5`, and `0xabc 1.5` are pasted in practice.
  */
 function splitLine(line: string): string[] {
   const delimiter = DELIMITER.test(line) ? DELIMITER : SPACE_DELIMITER;
@@ -157,6 +155,38 @@ function isHeaderRow(fields: string[]): boolean {
   const first = fields[0]?.toLowerCase() ?? "";
   const second = fields[1]?.toLowerCase() ?? "";
   return ADDRESS_HEADER.has(first) && (fields.length === 1 || AMOUNT_HEADER.has(second));
+}
+
+/**
+ * Parses raw text pasted from Google Sheets, Discord, Telegram, or text notes.
+ * Extracts address and amount/ID from arbitrary line formats.
+ */
+export function parseRawPastedLines(text: string): { address: string; amount: string }[] {
+  const lines = text.split(/\r?\n/);
+  const results: { address: string; amount: string }[] = [];
+  let headerSkipped = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = (lines[i] ?? "").trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+
+    const fields = splitLine(line);
+    if (fields.length === 0) continue;
+
+    if (!headerSkipped) {
+      headerSkipped = true;
+      if (isHeaderRow(fields)) continue;
+    }
+
+    const rawAddress = sanitizeInput(fields[0] ?? "");
+    const rawAmount = sanitizeInput(fields[1] ?? "");
+
+    if (rawAddress.length > 0 || rawAmount.length > 0) {
+      results.push({ address: rawAddress, amount: rawAmount });
+    }
+  }
+
+  return results;
 }
 
 /**

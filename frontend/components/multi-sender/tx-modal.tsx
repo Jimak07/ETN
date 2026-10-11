@@ -6,6 +6,7 @@ import {
   CircleAlert,
   CircleCheck,
   Clock,
+  Download,
   Loader2,
   PenLine,
   Radio,
@@ -13,42 +14,18 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
+import type { SendProgress, AssetKind, NftStandard } from "@/hooks/use-multi-sender";
 import { cn } from "@/lib/cn";
 import { getEtnChainOrDefault } from "@/lib/etn";
 import { explorerTxUrl } from "@/lib/multi-sender/contract";
-import { formatTokenAmount } from "@/lib/multi-sender/parse";
-import type { SendProgress } from "@/hooks/use-multi-sender";
-
-/**
- * Transaction status modal.
- *
- * The states the user actually experiences are named explicitly - awaiting
- * signature, broadcasted, confirmed, still-confirming - because the gap between
- * pressing Send and a receipt is where trust is won or lost.
- *
- * Two rules drive the design. A broadcast transaction is irreversible, so it is
- * presented as a success the moment the hash exists rather than as a spinner
- * that might turn red. And a receipt we never saw is *not* a failure: it renders
- * amber with a link to the explorer, never as a red banner, because a slow
- * Electroneum RPC must not be allowed to tell the user their airdrop failed.
- *
- * It cannot be dismissed while a run is live (signing or awaiting a receipt):
- * closing would hide the only place a multi-batch run reports itself. That wait
- * is bounded by the receipt timeout, after which the modal becomes dismissible.
- */
+import { formatTokenAmount, type RecipientRow } from "@/lib/multi-sender/parse";
+import { exportDistributionReceiptCsv } from "@/lib/multi-sender/receipt";
 
 type StepState = "done" | "active" | "pending" | "failed";
 
-/**
- * How long a receipt wait has to run before the manual escape hatch appears.
- *
- * Comfortably past a healthy confirmation (a few seconds) and well inside the
- * 120s receipt timeout, so the button is there for the user who is starting to
- * worry rather than only for the one who has already given up.
- */
 const SLOW_AFTER_MS = 20_000;
 
-/** Explorer-safe display form of a hash: "0x1234abcd...deadbeef". */
 function shortHash(hash: string): string {
   return `${hash.slice(0, 12)}...${hash.slice(-8)}`;
 }
@@ -94,12 +71,24 @@ interface TxModalProps {
   symbol: string;
   totalWei: bigint;
   decimals: number;
-  /** Chain the batch was signed on; decides which explorer the links point at. */
   chainId: number | null;
   onClose: () => void;
+  recipients?: readonly RecipientRow[];
+  asset?: AssetKind;
+  nftStandard?: NftStandard;
 }
 
-export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose }: TxModalProps) {
+export function TxModal({
+  progress,
+  symbol,
+  totalWei,
+  decimals,
+  chainId,
+  onClose,
+  recipients = [],
+  asset = "native",
+  nftStandard = "erc721",
+}: TxModalProps) {
   const reduceMotion = useReducedMotion();
   const chain = getEtnChainOrDefault(chainId);
   const open = progress.phase !== "idle";
@@ -109,9 +98,8 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
   const unconfirmed = progress.phase === "unconfirmed";
   const failed = progress.phase === "error";
   const [slow, setSlow] = useState(false);
+  const [receiptDownloaded, setReceiptDownloaded] = useState(false);
 
-  // A fresh wait for each broadcast, so batch 2 of 3 does not inherit the "this
-  // is taking ages" flag from batch 1.
   useEffect(() => {
     if (!broadcasting) {
       setSlow(false);
@@ -123,8 +111,6 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
     return () => clearTimeout(timer);
   }, [broadcasting, progress.hash]);
 
-  // A short two-burst confetti rather than a continuous rain: it reads as
-  // punctuation on the success state instead of a screensaver.
   useEffect(() => {
     if (!confirmed || reduceMotion) return;
 
@@ -134,11 +120,25 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
       if (cancelled) return;
 
       const colors = ["#22d3ee", "#34d399", "#e2e8f0"];
-      confetti({ particleCount: 80, spread: 68, startVelocity: 36, origin: { y: 0.32 }, colors, disableForReducedMotion: true });
+      confetti({
+        particleCount: 80,
+        spread: 68,
+        startVelocity: 36,
+        origin: { y: 0.32 },
+        colors,
+        disableForReducedMotion: true,
+      });
 
       setTimeout(() => {
         if (!cancelled) {
-          confetti({ particleCount: 45, spread: 100, startVelocity: 26, origin: { y: 0.4 }, colors, disableForReducedMotion: true });
+          confetti({
+            particleCount: 45,
+            spread: 100,
+            startVelocity: 26,
+            origin: { y: 0.4 },
+            colors,
+            disableForReducedMotion: true,
+          });
         }
       }, 180);
     })();
@@ -148,8 +148,6 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
     };
   }, [confirmed, reduceMotion]);
 
-  // Escape closes only once the run has settled, so a stray keypress cannot hide
-  // a pending signature or a broadcast in flight.
   useEffect(() => {
     if (!open) return;
 
@@ -161,7 +159,26 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [busy, onClose, open]);
 
-  const signatureState: StepState = failed && progress.step === "batch" && !progress.hash ? "failed" : progress.phase === "signing" && progress.step === "batch" ? "active" : "done";
+  const handleDownloadReceipt = () => {
+    if (!progress.hash) return;
+    exportDistributionReceiptCsv({
+      recipients,
+      symbol,
+      decimals,
+      txHash: progress.hash,
+      chainId,
+      asset,
+      nftStandard,
+    });
+    setReceiptDownloaded(true);
+  };
+
+  const signatureState: StepState =
+    failed && progress.step === "batch" && !progress.hash
+      ? "failed"
+      : progress.phase === "signing" && progress.step === "batch"
+        ? "active"
+        : "done";
   const approvalState: StepState = progress.approvalHash
     ? failed && progress.step === "approval"
       ? "failed"
@@ -171,8 +188,6 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
     : "pending";
   const broadcastState: StepState =
     progress.phase === "broadcasting" ? "active" : confirmed || progress.hash ? "done" : "pending";
-  // An unobserved receipt leaves the last step waiting rather than failed: the
-  // batch may well have landed, we simply have no receipt to prove it with.
   const confirmState: StepState = confirmed
     ? "done"
     : failed && progress.hash
@@ -194,11 +209,10 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
           ((confirmed ? progress.batchIndex : progress.batchIndex - 1) / progress.batchCount) * 100,
         ) + (confirmed || !inFlight ? 0 : 40 / progress.batchCount);
 
-  /** Headline per state. "Broadcasted" is a success, not a progress note. */
   const headline = confirmed
     ? "Batch confirmed"
     : unconfirmed
-      ? "Broadcast - awaiting confirmation"
+      ? "Broadcast — awaiting confirmation"
       : failed
         ? "Batch not sent"
         : broadcasting
@@ -214,7 +228,7 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/80 p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/85 p-4 backdrop-blur-md sm:items-center"
           role="dialog"
           aria-modal="true"
           aria-label="Batch transaction status"
@@ -227,27 +241,33 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0, y: 16, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
-            className="glass-panel shadow-card w-full max-w-md p-5"
+            className="relative w-full max-w-md overflow-hidden rounded-xl border border-slate-800 bg-slate-900/95 p-5 shadow-2xl backdrop-blur-xl"
           >
+            {/* Cyan hairline */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
+            />
+
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p
                   className={cn(
-                    "text-[0.62rem] font-medium uppercase tracking-[0.16em]",
+                    "text-[0.62rem] font-semibold uppercase tracking-[0.16em]",
                     confirmed
-                      ? "text-status-healthy"
+                      ? "text-emerald-400"
                       : unconfirmed
-                        ? "text-status-degraded"
+                        ? "text-amber-400"
                         : failed
-                          ? "text-status-offline"
-                          : "text-slate-500",
+                          ? "text-rose-400"
+                          : "text-slate-400",
                   )}
                 >
                   {headline}
                 </p>
                 <h2 className="mt-1 text-base font-semibold text-slate-100">
                   {formatTokenAmount(totalWei, decimals, 6)} {symbol}
-                  <span className="num text-slate-500"> to {progress.recipientCount} addresses</span>
+                  <span className="font-mono text-slate-400"> to {progress.recipientCount} addresses</span>
                 </h2>
               </div>
 
@@ -266,10 +286,10 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
               <div className="mt-4">
                 <div className="flex items-center justify-between text-[0.68rem] text-slate-500">
                   <span>
-                    Batch <span className="num text-slate-300">{progress.batchIndex}</span> of{" "}
-                    <span className="num text-slate-300">{progress.batchCount}</span>
+                    Batch <span className="font-mono text-slate-300">{progress.batchIndex}</span> of{" "}
+                    <span className="font-mono text-slate-300">{progress.batchCount}</span>
                   </span>
-                  <span className="num">{Math.min(100, Math.max(0, progressPct))}%</span>
+                  <span className="font-mono">{Math.min(100, Math.max(0, progressPct))}%</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-800/80">
                   <motion.div
@@ -278,9 +298,9 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                     className={cn(
                       "h-full rounded-full",
                       failed
-                        ? "bg-status-offline"
+                        ? "bg-rose-500"
                         : unconfirmed
-                          ? "bg-status-degraded"
+                          ? "bg-amber-400"
                           : "bg-cyan-400",
                     )}
                   />
@@ -288,15 +308,56 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
               </div>
             ) : null}
 
-            {/*
-              Shown the instant a hash exists. The transaction is already
-              irreversible, so this is a success presentation rather than a
-              spinner: the only thing still in doubt is whether we will manage to
-              observe the receipt.
-            */}
-            {broadcasting && progress.hash ? (
-              <div className="mt-4 rounded-xl border border-status-healthy/30 bg-status-healthy/[0.07] px-3.5 py-3">
-                <p className="flex items-center gap-2 text-xs font-medium text-status-healthy">
+            {/* POST-SEND CONFIRMED SUCCESS CARD */}
+            {confirmed && progress.hash ? (
+              <div className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-950/25 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+                  <CircleCheck className="h-5 w-5 shrink-0" />
+                  <span>Batch Confirmed Successfully!</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-300 border-t border-emerald-500/20 pt-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Transaction Hash:</span>
+                    <a
+                      href={explorerTxUrl(chainId, progress.hash)}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="font-mono text-cyan-300 hover:underline inline-flex items-center gap-1"
+                    >
+                      {shortHash(progress.hash)}
+                      <ArrowUpRight className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Verified Explorer:</span>
+                    <span className="font-mono text-slate-200">Blockscout ({chain.name})</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Recipients Processed:</span>
+                    <span className="font-mono text-slate-200">{progress.recipientCount} wallets</span>
+                  </div>
+                </div>
+
+                {/* Download Distribution Receipt Button */}
+                {recipients.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDownloadReceipt}
+                    className="w-full gap-2 border-emerald-500/40 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {receiptDownloaded ? "Receipt Downloaded ✓" : "Download Distribution Receipt"}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Broadcasting Notification */}
+            {broadcasting && progress.hash && !confirmed ? (
+              <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 px-3.5 py-3">
+                <p className="flex items-center gap-2 text-xs font-medium text-emerald-400">
                   <CircleCheck className="h-4 w-4 shrink-0" />
                   Transaction Broadcasted
                 </p>
@@ -304,70 +365,47 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                   href={explorerTxUrl(chainId, progress.hash)}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="num mt-1.5 inline-flex items-center gap-1 text-[0.68rem] text-cyan-300 transition hover:text-cyan-200"
+                  className="font-mono mt-1.5 inline-flex items-center gap-1 text-[0.68rem] text-cyan-300 transition hover:text-cyan-200"
                 >
                   {shortHash(progress.hash)}
                   <ArrowUpRight className="h-3 w-3" />
                 </a>
                 <p className="mt-1.5 text-[0.68rem] leading-relaxed text-slate-400">
-                  Your wallet signed and the network accepted it. Waiting for {chain.name} to confirm -
-                  this can take a while.
+                  Transaction broadcasted to {chain.name}. Waiting for block confirmation...
                 </p>
               </div>
             ) : null}
 
-            {/*
-              The manual escape hatch. An ordinary link rather than a retry is the
-              point: there is nothing to retry, the hash already exists, and
-              re-sending would double-spend the batch.
-            */}
-            {broadcasting && slow && progress.hash ? (
+            {broadcasting && slow && progress.hash && !confirmed ? (
               <a
                 href={explorerTxUrl(chainId, progress.hash)}
                 target="_blank"
                 rel="noreferrer noopener"
                 className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-2.5 text-xs font-medium text-cyan-300 transition hover:border-cyan-400/60 hover:bg-cyan-500/20"
               >
-                Taking too much time? Check status
+                Taking longer than usual? Check Blockscout Explorer
                 <ArrowUpRight className="h-3 w-3" />
               </a>
             ) : null}
 
-            {/*
-              The timeout path. Amber rather than red, and it says what is
-              actually uncertain instead of claiming the batch failed.
-            */}
             {unconfirmed ? (
-              <div className="mt-4 rounded-xl border border-status-degraded/30 bg-status-degraded/[0.07] px-3.5 py-3">
-                <p className="flex items-center gap-2 text-xs font-medium text-status-degraded">
+              <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-3.5 py-3">
+                <p className="flex items-center gap-2 text-xs font-medium text-amber-400">
                   <Clock className="h-4 w-4 shrink-0" />
-                  Still confirming
+                  Still confirming on-chain
                 </p>
                 <p className="mt-1 text-[0.68rem] leading-relaxed text-slate-300">
-                  Transaction submitted successfully! Confirmation is taking longer than usual
-                  {chain.testnet ? " on the testnet" : ""}. Check your transaction status on the
-                  explorer.
+                  Transaction submitted successfully. Block confirmation is taking longer than usual.
+                  Check the explorer to verify block inclusion.
                 </p>
-                {progress.batchCount > progress.batchIndex ? (
-                  <p className="mt-1.5 text-[0.68rem] leading-relaxed text-slate-400">
-                    Batch <span className="num text-slate-300">{progress.batchIndex}</span> of{" "}
-                    <span className="num text-slate-300">{progress.batchCount}</span> was submitted; the
-                    remaining{" "}
-                    <span className="num text-slate-300">
-                      {progress.batchCount - progress.batchIndex}
-                    </span>{" "}
-                    {progress.batchCount - progress.batchIndex === 1 ? "batch was" : "batches were"} not
-                    sent. Verify this one on the explorer before running them.
-                  </p>
-                ) : null}
                 {progress.hash ? (
                   <a
                     href={explorerTxUrl(chainId, progress.hash)}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-status-degraded/40 bg-status-degraded/10 px-3.5 py-2.5 text-xs font-medium text-status-degraded transition hover:bg-status-degraded/20"
+                    className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-amber-950/30 px-3.5 py-2 text-xs font-medium text-amber-300 transition hover:bg-amber-900/30"
                   >
-                    Verify on Explorer
+                    Verify on Blockscout Explorer
                     <ArrowUpRight className="h-3 w-3" />
                   </a>
                 ) : null}
@@ -378,7 +416,7 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
               {progress.step === "approval" || progress.approvalHash ? (
                 <Step
                   state={approvalState}
-                  label="Approving the token"
+                  label="Approving token allowance / operator"
                   icon={<PenLine className="h-3.5 w-3.5" />}
                   detail={
                     progress.approvalHash ? (
@@ -386,7 +424,7 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                         href={explorerTxUrl(chainId, progress.approvalHash)}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="num inline-flex items-center gap-1 transition hover:text-cyan-300"
+                        className="font-mono inline-flex items-center gap-1 transition hover:text-cyan-300"
                       >
                         {progress.approvalHash.slice(0, 12)}...{progress.approvalHash.slice(-8)}
                         <ArrowUpRight className="h-3 w-3" />
@@ -400,18 +438,18 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
 
               <Step
                 state={signatureState}
-                label="Awaiting signature"
+                label="Awaiting wallet signature"
                 icon={<PenLine className="h-3.5 w-3.5" />}
                 detail={
                   progress.phase === "signing"
                     ? "Approve the batch in your wallet"
-                    : "Signed by your wallet"
+                    : "Signed by wallet"
                 }
               />
 
               <Step
                 state={broadcastState}
-                label="Broadcasting"
+                label="Broadcasting to mempool"
                 icon={
                   progress.phase === "broadcasting" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -425,13 +463,13 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                       href={explorerTxUrl(chainId, progress.hash)}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="num inline-flex items-center gap-1 transition hover:text-cyan-300"
+                      className="font-mono inline-flex items-center gap-1 transition hover:text-cyan-300"
                     >
                       {progress.hash.slice(0, 12)}...{progress.hash.slice(-8)}
                       <ArrowUpRight className="h-3 w-3" />
                     </a>
                   ) : (
-                    "Waiting for a transaction hash"
+                    "Waiting for network broadcast hash"
                   )
                 }
               />
@@ -442,46 +480,44 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                 icon={<CircleCheck className="h-3.5 w-3.5" />}
                 detail={
                   confirmed
-                    ? "Every transfer landed. Balances are refreshing."
+                    ? "Every transfer landed on-chain. Balances refreshed."
                     : unconfirmed
-                      ? "Still waiting for the receipt. The transaction is on chain - we simply have not seen it yet."
-                      : "Waiting for the receipt"
+                      ? "Still waiting for receipt. Transaction is submitted."
+                      : "Waiting for validator block inclusion"
                 }
               />
             </ol>
 
             {failed && progress.error ? (
-              <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-status-offline/30 bg-status-offline/[0.07] px-3.5 py-3">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-offline" />
+              <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-950/20 px-3.5 py-3">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
                 <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-status-offline">{progress.error.title}</p>
+                  <p className="text-xs font-medium text-rose-300">{progress.error.title}</p>
                   <p className="text-[0.68rem] leading-relaxed text-slate-400">{progress.error.detail}</p>
                 </div>
               </div>
             ) : null}
 
-            <div className="mt-5 flex items-center justify-end gap-2">
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-800/80 pt-4">
               {(confirmed || unconfirmed) && progress.hash ? (
                 <a
                   href={explorerTxUrl(chainId, progress.hash)}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 px-3.5 py-2.5 text-xs font-medium text-slate-300 transition hover:border-cyan-500/40 hover:text-cyan-300"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 px-3.5 py-2 text-xs font-medium text-slate-300 transition hover:border-cyan-500/40 hover:text-cyan-300"
                 >
                   View on explorer <ArrowUpRight className="h-3 w-3" />
                 </a>
               ) : null}
 
-              <button
+              <Button
                 type="button"
+                variant={confirmed ? "glow" : "outline"}
                 onClick={onClose}
                 disabled={busy}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-semibold transition",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                  confirmed
-                    ? "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
-                    : "border border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700",
+                  "gap-1.5",
+                  confirmed && "bg-emerald-400 text-slate-950 hover:bg-emerald-300"
                 )}
               >
                 {confirmed
@@ -489,7 +525,7 @@ export function TxModal({ progress, symbol, totalWei, decimals, chainId, onClose
                   : failed || unconfirmed
                     ? "Back to the list"
                     : "Sending..."}
-              </button>
+              </Button>
             </div>
           </motion.div>
         </motion.div>
