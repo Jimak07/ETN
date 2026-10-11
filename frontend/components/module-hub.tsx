@@ -15,7 +15,7 @@ const MODULES = [
     name: "Swap",
     description: "Route ETN against bridged assets with live slippage guards.",
     icon: ArrowLeftRight,
-    href: null,
+    href: "/swap",
   },
   {
     name: "Stake",
