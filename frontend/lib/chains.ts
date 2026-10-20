@@ -20,6 +20,11 @@ export type ChainConfig = EtnChainConfig & {
   explorerApiKey?: string | null;
   /** Optional deployed PulseMultiSender contract address for this chain. */
   multiSenderAddress?: `0x${string}`;
+  /**
+   * Explicit boolean flag indicating whether the multi-sender contract and functionality
+   * is deployed, verified, and enabled on this network.
+   */
+  isEnabled: boolean;
 };
 
 function optionalKey(...candidates: Array<string | undefined>): string | null {
@@ -40,12 +45,14 @@ const BSC_RPC_URL =
 export const ETN_MAINNET_CHAIN: ChainConfig = {
   ...ETN_MAINNET,
   multiSenderAddress: "0x369D2Fe03Ae03915D7a48D58Daf0dcd8207245CF",
+  isEnabled: true,
 };
 
 /** Electroneum testnet with deployed multi-sender contract. */
 export const ETN_TESTNET_CHAIN: ChainConfig = {
   ...ETN_TESTNET,
   multiSenderAddress: "0x505Cfac9c4F8B6aB8a8AbeBf37bFC9BFe790f1D0",
+  isEnabled: true,
 };
 
 /**
@@ -68,6 +75,7 @@ export const ETHEREUM: ChainConfig = {
   rpcUrls: [ETHEREUM_RPC_URL, "https://eth.llamarpc.com"],
   testnet: false,
   multiSenderAddress: undefined,
+  isEnabled: false,
 };
 
 /** BNB Smart Chain mainnet. */
@@ -83,6 +91,7 @@ export const BNB_SMART_CHAIN: ChainConfig = {
   rpcUrls: [BSC_RPC_URL, "https://bsc-rpc.publicnode.com"],
   testnet: false,
   multiSenderAddress: undefined,
+  isEnabled: false,
 };
 
 const CHAINS_LIST: readonly ChainConfig[] = [
@@ -119,9 +128,17 @@ export function isSupportedChain(chainId: number | null | undefined): boolean {
   return getChainConfig(chainId) !== null;
 }
 
-/** Chain descriptor for display, falling back to the default when nothing is connected. */
+/** Returns true only if the network is supported AND has active contract deployment enabled. */
+export function isChainEnabled(chainId: number | null | undefined): boolean {
+  if (typeof chainId !== "number" || !Number.isInteger(chainId)) return false;
+  const config = SUPPORTED_CHAINS[chainId];
+  return Boolean(config && config.isEnabled && config.multiSenderAddress);
+}
+
+/** Chain descriptor for display, falling back strictly to Electroneum Mainnet when unconfigured or disabled. */
 export function getChainConfigOrDefault(chainId: number | null | undefined): ChainConfig {
-  return getChainConfig(chainId) ?? ETN_MAINNET_CHAIN;
+  const config = getChainConfig(chainId);
+  return config && config.isEnabled ? config : ETN_MAINNET_CHAIN;
 }
 
 export interface PopularToken {
@@ -133,18 +150,16 @@ export interface PopularToken {
 /**
  * High-volume tokens, per chain, as data.
  *
- * A local list rather than an on-chain registry lookup: the point of the
- * "Popular tokens" tab is that it is one click and needs no network round trip
- * before the user can see what they are about to send. The addresses are the
- * canonical ones for each chain; `isAddress` filters the map at module load, so
- * a mistyped entry disappears from the dropdown instead of being handed to a
- * contract call.
- *
- * Electroneum deliberately has no entries. Inventing a plausible-looking token
- * address would send real funds into a contract that does not exist, so the
- * dropdown says so and the Custom tab takes the address the user actually has.
+ * Populated with verified canonical tokens on Electroneum Mainnet (WETN, BOLT, PDY, BUDDY)
+ * alongside benchmark tokens on external testbeds.
  */
 const LISTED_TOKENS: Record<number, readonly PopularToken[]> = {
+  [ETN_MAINNET_CHAIN.id]: [
+    { address: "0x138DAFbDA0CCB3d8E39C19edb0510Fc31b7C1c77", symbol: "WETN", decimals: 18 },
+    { address: "0x043fAa1b5C5FC9a7dc35171f290c29ECDE0cCff1", symbol: "BOLT", decimals: 18 },
+    { address: "0xc20d02538368D8F7deBeAeB99D9a8b4d4D1DDC1C", symbol: "PDY", decimals: 18 },
+    { address: "0x38B54f147303887BD2E932373432FfCBD11Ff6a5", symbol: "BUDDY", decimals: 18 },
+  ],
   [ETHEREUM.id]: [
     { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", symbol: "USDC", decimals: 6 },
     { address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", symbol: "USDT", decimals: 6 },

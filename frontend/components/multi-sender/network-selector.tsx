@@ -169,39 +169,53 @@ export function NetworkSelector({
               {Object.values(SUPPORTED_CHAINS)
                 .filter((option): option is ChainConfig => Boolean(option?.id))
                 .map((option) => {
+                  const isEnabled = Boolean(option.isEnabled && option.multiSenderAddress);
                   const active = option.id === chainId;
 
-                return (
-                  <li key={option.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      onClick={() => select(option.id)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition",
-                        active ? "bg-cyan-500/10" : "hover:bg-slate-800/60",
-                      )}
-                    >
-                      <span className="min-w-0">
-                        <span className="flex items-center gap-2 text-xs font-medium text-slate-200">
-                          {option.name}
-                          {option.testnet ? (
-                            <span className="rounded-full border border-status-degraded/40 px-1.5 py-0.5 text-[0.55rem] uppercase tracking-[0.12em] text-status-degraded">
-                              Testnet
-                            </span>
-                          ) : null}
+                  return (
+                    <li key={option.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        disabled={!isEnabled}
+                        onClick={() => {
+                          if (isEnabled) select(option.id);
+                        }}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition",
+                          !isEnabled
+                            ? "cursor-not-allowed opacity-50 select-none bg-slate-950/40"
+                            : active
+                              ? "bg-cyan-500/10"
+                              : "hover:bg-slate-800/60",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2 text-xs font-medium text-slate-200">
+                            {option.name}
+                            {option.testnet ? (
+                              <span className="rounded-full border border-status-degraded/40 px-1.5 py-0.5 text-[0.55rem] uppercase tracking-[0.12em] text-status-degraded">
+                                Testnet
+                              </span>
+                            ) : null}
+                            {!isEnabled ? (
+                              <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                COMING SOON
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="num mt-0.5 block truncate text-[0.62rem] text-slate-500">
+                            {option.nativeCurrency.symbol} · chain {option.id}
+                            {!isEnabled ? " · contract unreleased" : ""}
+                          </span>
                         </span>
-                        <span className="num mt-0.5 block truncate text-[0.62rem] text-slate-500">
-                          {option.nativeCurrency.symbol} · chain {option.id}
-                        </span>
-                      </span>
 
-                      {active ? <Check className="h-3.5 w-3.5 shrink-0 text-cyan-300" /> : null}
-                    </button>
-                  </li>
-                );
-              })}
+                        {active && isEnabled ? <Check className="h-3.5 w-3.5 shrink-0 text-cyan-300" /> : null}
+                      </button>
+                    </li>
+                  );
+                })}
             </motion.ul>
           ) : null}
         </AnimatePresence>

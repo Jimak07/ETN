@@ -36,7 +36,9 @@ import {
   DEFAULT_CHAIN_ID,
   SUPPORTED_CHAINS,
   findPopularToken,
+  getChainConfig,
   getChainConfigOrDefault,
+  isChainEnabled,
   isSupportedChain,
   type ChainConfig,
 } from "@/lib/chains";
@@ -145,7 +147,13 @@ async function requestAccounts(provider: Eip1193Provider): Promise<Address | nul
 export function useMultiSender() {
   const [provider, setProvider] = useState<Eip1193Provider | null>(null);
   const [account, setAccount] = useState<Address | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
+  /** The raw chain ID reported by the connected wallet provider. */
+  const [walletChainId, setWalletChainId] = useState<number | null>(null);
+  /** The chain ID the Multi-Sender UI is actively configured for (strictly defaults to Electroneum Mainnet). */
+  const [selectedChainId, setSelectedChainId] = useState<number>(DEFAULT_CHAIN_ID);
+  /** Publicly exposed chain ID of the active module UI. */
+  const chainId = selectedChainId;
+
   const [connecting, setConnecting] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -169,7 +177,7 @@ export function useMultiSender() {
     setTokenAddress("");
     setNftTokenId("");
     setNftApproved(null);
-  }, [chainId]);
+  }, [selectedChainId]);
 
   const [nativeBalance, setNativeBalance] = useState<bigint | null>(null);
   const [token, setToken] = useState<TokenState>({
@@ -195,15 +203,26 @@ export function useMultiSender() {
 
   useEffect(() => () => explorerWatchRef.current?.abort(), []);
 
-  // Only a chain this app can actually act on counts as "ok": a wallet parked on
-  // some unrelated EVM network is a blocking state, not an implicit mainnet.
-  const chainOk = isSupportedChain(chainId);
-  /** Descriptor for the live chain, or mainnet as a display placeholder. */
-  const chain: ChainConfig = getChainConfigOrDefault(chainId);
-  /** Deployment address for the connected chain, resolved dynamically from SUPPORTED_CHAINS[chainId].multiSenderAddress. */
+  // Strict network verification:
+  // A wallet on an unenabled chain (e.g. Ethereum 1, BSC 56) is a mismatch guardrail state.
+  // The UI stays locked to selectedChainId (Electroneum 52014), blocking execution until switched.
+  const chainOk =
+    walletChainId !== null &&
+    walletChainId === selectedChainId &&
+    isChainEnabled(selectedChainId);
+
+  /** Descriptor for the active chain (strictly Electroneum Mainnet or Testnet). */
+  const chain: ChainConfig = getChainConfigOrDefault(selectedChainId);
+
+  /** Name of the chain the user's wallet is currently parked on. */
+  const walletChainConfig = getChainConfig(walletChainId);
+  const walletChainName =
+    walletChainConfig?.name ?? (walletChainId ? `Chain ${walletChainId}` : null);
+
+  /** Deployment address for the selected chain, resolved dynamically from SUPPORTED_CHAINS. */
   const contractAddress: Address | null =
-    typeof chainId === "number" && SUPPORTED_CHAINS[chainId]?.multiSenderAddress
-      ? (getAddress(SUPPORTED_CHAINS[chainId]!.multiSenderAddress!) as Address)
+    typeof selectedChainId === "number" && SUPPORTED_CHAINS[selectedChainId]?.multiSenderAddress
+      ? (getAddress(SUPPORTED_CHAINS[selectedChainId]!.multiSenderAddress!) as Address)
       : null;
   const configured = contractAddress !== null;
 
@@ -224,7 +243,11 @@ export function useMultiSender() {
         ]);
         if (cancelled) return;
         setAccount(Array.isArray(accounts) ? asAddress(accounts[0]) : null);
-        setChainId(asChainId(currentChain));
+        const detected = asChainId(currentChain);
+        setWalletChainId(detected);
+        if (detected && isChainEnabled(detected)) {
+          setSelectedChainId(detected);
+        }
       } catch {
         // A wallet that refuses to answer is treated as disconnected rather
         // than as an error: nothing has been requested from the user yet.
@@ -237,7 +260,13 @@ export function useMultiSender() {
       const next = Array.isArray(args[0]) ? args[0] : [];
       setAccount(asAddress(next[0]));
     };
-    const onChainChanged = (...args: unknown[]) => setChainId(asChainId(args[0]));
+    const onChainChanged = (...args: unknown[]) => {
+      const detected = asChainId(args[0]);
+      setWalletChainId(detected);
+      if (detected && isChainEnabled(detected)) {
+        setSelectedChainId(detected);
+      }
+    };
 
     // EIP-1193 providers expose `on`/`removeListener`; the injected interface
     // here is a narrow subset, so the event methods are probed rather than
@@ -276,10 +305,11 @@ export function useMultiSender() {
       setProvider(injected);
       setAccount(next);
 
-      // Connecting reports the chain rather than correcting it. Two Electroneum
-      // networks are supported, so silently moving the wallet could sign a
-      // mainnet batch the user meant for testnet - the panel asks instead.
-      setChainId(asChainId(await injected.request({ method: "eth_chainId" })));
+      const detected = asChainId(await injected.request({ method: "eth_chainId" }));
+      setWalletChainId(detected);
+      if (detected && isChainEnabled(detected)) {
+        setSelectedChainId(detected);
+      }
     } catch (error) {
       setConnectionError(describeSendError(error).detail);
     } finally {
@@ -288,15 +318,15 @@ export function useMultiSender() {
   }, [provider]);
 
   /**
-   * Move the connected wallet onto one of the supported networks.
+   * Move the connected wallet onto one of the supported enabled networks.
    *
-   * Always user-initiated: the app cannot know which of the two networks a given
-   * batch is meant for, and guessing wrong means sending real ETN instead of
-   * testnet ETN. The chain is re-read from the provider afterwards because the
-   * `chainChanged` event is missing on some wallets.
+   * Target is strictly validated to ensure only enabled deployments (Electroneum Mainnet/Testnet)
+   * can be switched to, preventing accidental navigation to unreleased chains.
    */
   const switchTo = useCallback(
     async (target: number = DEFAULT_CHAIN_ID) => {
+      const destChain = isChainEnabled(target) ? target : DEFAULT_CHAIN_ID;
+      setSelectedChainId(destChain);
       setConnectionError(null);
       const injected = provider ?? getEthereumProvider();
 
@@ -307,12 +337,16 @@ export function useMultiSender() {
 
       setSwitching(true);
       try {
-        const result = await switchChain(injected, target);
+        const result = await switchChain(injected, destChain);
         if (!result.ok) {
           setConnectionError(result.message);
           return;
         }
-        setChainId(asChainId(await injected.request({ method: "eth_chainId" })));
+        const detected = asChainId(await injected.request({ method: "eth_chainId" }));
+        setWalletChainId(detected);
+        if (detected && isChainEnabled(detected)) {
+          setSelectedChainId(detected);
+        }
       } catch (error) {
         setConnectionError(describeSendError(error).detail);
       } finally {
@@ -325,7 +359,7 @@ export function useMultiSender() {
   // --- balances -------------------------------------------------------------
 
   const refreshNativeBalance = useCallback(async () => {
-    if (!account) {
+    if (!account || !chainOk) {
       setNativeBalance(null);
       return;
     }
@@ -346,7 +380,7 @@ export function useMultiSender() {
       // A failed read leaves the previous value in place; the panel marks it
       // stale rather than showing a wrong zero.
     }
-  }, [account, chainId]);
+  }, [account, chainId, chainOk]);
 
   useEffect(() => {
     if (!account) {
@@ -571,10 +605,7 @@ export function useMultiSender() {
       if (!chainOk) {
         fail(
           "Wrong network",
-          `Switch your wallet to a supported network (${Object.values(SUPPORTED_CHAINS)
-            .filter((option): option is ChainConfig => Boolean(option?.name))
-            .map((option) => option.name)
-            .join(", ")}) before sending a batch.`,
+          `Your wallet is connected to ${walletChainName ?? `Chain ${walletChainId}`}. Please switch to ${chain.name} (${chain.id}) before sending a batch.`,
         );
         return;
       }
@@ -911,7 +942,7 @@ export function useMultiSender() {
 
   const approve = useCallback(
     async (amountToApprove?: bigint) => {
-      if (!account || !provider || !contractAddress || !token.address || typeof chainId !== "number") return;
+      if (!account || !chainOk || !provider || !contractAddress || !token.address || typeof chainId !== "number") return;
       const wallet = getWalletClient(provider, account, chainId);
       const client = getReadClient(chainId);
       setApproving(true);
@@ -942,7 +973,7 @@ export function useMultiSender() {
         setApproving(false);
       }
     },
-    [account, asset, chainId, contractAddress, provider, refreshToken, token.address, token.allowance]
+    [account, asset, chainId, chainOk, contractAddress, provider, refreshToken, token.address, token.allowance]
   );
 
   const reset = useCallback(() => {
@@ -969,6 +1000,8 @@ export function useMultiSender() {
     provider,
     account,
     chainId,
+    walletChainId,
+    walletChainName,
     chainOk,
     chain,
     contractAddress,

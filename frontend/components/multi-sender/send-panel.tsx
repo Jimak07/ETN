@@ -47,6 +47,8 @@ interface SendPanelProps {
   nativeBalance: bigint | null;
   account: string | null;
   chainId: number | null;
+  walletChainId?: number | null;
+  walletChainName?: string | null;
   chain: ChainConfig;
   chainOk: boolean;
   switching: boolean;
@@ -79,6 +81,8 @@ export function SendPanel({
   nativeBalance,
   account,
   chainId,
+  walletChainId,
+  walletChainName,
   chain,
   chainOk,
   switching,
@@ -195,18 +199,18 @@ export function SendPanel({
             <span
               className={cn(
                 "font-mono rounded-full border px-2.5 py-1 text-[0.62rem] font-semibold uppercase tracking-wider",
-                chainId === null
+                !account
                   ? "border-slate-800 bg-slate-900 text-slate-500"
                   : chainOk
                     ? "border-cyan-500/30 bg-cyan-950/30 text-cyan-300"
                     : "border-amber-500/40 bg-amber-950/30 text-amber-300"
               )}
             >
-              {chainId === null
+              {!account
                 ? "Wallet Disconnected"
                 : chainOk
                   ? `${chain.name} (${chain.id})`
-                  : `Unsupported Chain (${chainId})`}
+                  : `Mismatch: ${walletChainName ?? `Chain ${walletChainId}`}`}
             </span>
           </div>
         </div>
@@ -384,25 +388,34 @@ export function SendPanel({
               {connecting ? "Connecting Wallet..." : "Connect Wallet"}
             </Button>
           ) : !chainOk ? (
-            <div className="space-y-2">
-              <Alert variant="warning">
-                <TriangleAlert className="h-4 w-4" />
-                <AlertTitle>Unsupported Network</AlertTitle>
-                <AlertDescription>
-                  Your wallet is on an unsupported chain ({chainId}). Switch to a supported network to
-                  send.
+            <div className="space-y-3">
+              <Alert variant="warning" className="border-amber-500/40 bg-amber-950/20 text-amber-200">
+                <TriangleAlert className="h-4 w-4 text-amber-400" />
+                <AlertTitle className="text-amber-300 font-semibold">Wallet Network Mismatch</AlertTitle>
+                <AlertDescription className="text-xs leading-relaxed text-amber-200/90">
+                  Your connected wallet is currently on{" "}
+                  <strong className="text-white font-medium">
+                    {walletChainName ?? `Chain ${walletChainId}`}
+                  </strong>
+                  . The Multi-Sender dApp requires{" "}
+                  <strong className="text-cyan-300 font-medium">{chain.name}</strong> to disburse
+                  batch transactions.
                 </AlertDescription>
               </Alert>
               <Button
                 type="button"
-                variant="secondary"
+                variant="default"
                 size="lg"
-                onClick={() => onSwitchChain(DEFAULT_CHAIN_ID)}
+                onClick={() => onSwitchChain(chain.id)}
                 disabled={switching}
-                className="w-full text-sm font-semibold"
+                className="w-full text-sm font-semibold shadow-glow"
               >
-                {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-cyan-400" />}
-                Switch to {getChainConfigOrDefault(DEFAULT_CHAIN_ID).name}
+                {switching ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-950" />
+                ) : (
+                  <ArrowLeftRight className="h-4 w-4 text-slate-950" />
+                )}
+                {switching ? "Switching Network..." : `Switch Wallet to ${chain.name}`}
               </Button>
             </div>
           ) : (

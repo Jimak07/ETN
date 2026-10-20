@@ -1,7 +1,7 @@
 import { createPublicClient, defineChain, http, type Chain, type PublicClient } from "viem";
 
 import { SUPPORTED_CHAINS, type ChainConfig } from "./chains";
-import { ETN_MAINNET, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS, type MonitoredRpc } from "./etn";
+import { ETN_MAINNET, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS, type EtnChainConfig, type MonitoredRpc } from "./etn";
 
 /**
  * Projects a flat `ChainConfig` into the shape viem wants.
@@ -11,7 +11,7 @@ import { ETN_MAINNET, ETN_TESTNET, RPC_REQUEST_TIMEOUT_MS, type MonitoredRpc } f
  * points a user at the wrong network when it is duplicated, so every chain is
  * derived from the same record.
  */
-function defineEvmChain(config: ChainConfig): Chain {
+function defineEvmChain(config: EtnChainConfig | ChainConfig): Chain {
   return defineChain({
     id: config.id,
     name: config.name,

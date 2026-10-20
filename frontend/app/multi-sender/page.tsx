@@ -32,6 +32,8 @@ export default function MultiSenderPage() {
   const {
     account,
     chainId,
+    walletChainId,
+    walletChainName,
     chain,
     chainOk,
     contractAddress,
@@ -104,12 +106,12 @@ export default function MultiSenderPage() {
   }, [approve, parsed.totalWei]);
 
   const networkBadge =
-    chainId === null
+    !account
       ? "wallet not connected"
-      : chainOk
-        ? `${chain.label} · ${chain.id}`
-        : `unsupported · ${chainId}`;
-  const networkIsWarning = chainId !== null && (!chainOk || chain.testnet);
+      : !chainOk
+        ? `mismatch · wallet on ${walletChainName ?? `chain ${walletChainId}`}`
+        : `${chain.label} · ${chain.id}`;
+  const networkIsWarning = account !== null && (!chainOk || chain.testnet);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
@@ -177,6 +179,33 @@ export default function MultiSenderPage() {
         </header>
 
         {/* Network & Environment Notices */}
+        {account && !chainOk ? (
+          <Notice
+            tone="amber"
+            icon={<TriangleAlert className="h-4 w-4" />}
+            title="Wallet Network Mismatch"
+            detail={
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  Your wallet is currently connected to{" "}
+                  <strong className="text-white font-medium">{walletChainName ?? `Chain ${walletChainId}`}</strong>.
+                  Multi-Sender requires{" "}
+                  <strong className="text-cyan-300 font-medium">{chain.name}</strong> to disburse
+                  batch transactions.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => switchTo(chain.id)}
+                  disabled={switching}
+                  className="rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300 transition"
+                >
+                  {switching ? "Switching..." : `Switch to ${chain.name}`}
+                </button>
+              </div>
+            }
+          />
+        ) : null}
+
         {chainOk && chain.testnet ? (
           <Notice
             tone="amber"
@@ -272,6 +301,8 @@ export default function MultiSenderPage() {
             nativeBalance={account ? nativeBalance : null}
             account={account}
             chainId={chainId}
+            walletChainId={walletChainId}
+            walletChainName={walletChainName}
             chain={chain}
             chainOk={chainOk}
             switching={switching}
