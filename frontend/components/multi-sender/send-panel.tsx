@@ -149,7 +149,7 @@ export function SendPanel({
     : !chainOk
       ? null
       : !isDeployed
-        ? "The Multi-Sender contract is not yet deployed on this network."
+        ? "The PulseDrop contract is not yet deployed on this network."
         : assetBlocker ??
           (hasErrors
             ? `Please resolve all ${invalidCount} flagged row errors in the table above before sending.`
@@ -331,7 +331,7 @@ export function SendPanel({
               <div>
                 <strong className="text-cyan-300 font-semibold">NFT Operator Approval Required:</strong>{" "}
                 <span>
-                  Before batching NFTs, you will authorize the Multi-Sender contract as an operator (
+                  Before batching NFTs, you will authorize the PulseDrop contract as an operator (
                   <code className="font-mono text-cyan-200">setApprovalForAll</code>).
                 </span>
               </div>
@@ -368,7 +368,7 @@ export function SendPanel({
             <TriangleAlert className="h-4 w-4" />
             <AlertTitle>Contract Not Deployed</AlertTitle>
             <AlertDescription>
-              The Multi-Sender smart contract is not yet deployed on {chain.name}.
+              The PulseDrop smart contract is not yet deployed on {chain.name}.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -397,7 +397,7 @@ export function SendPanel({
                   <strong className="text-white font-medium">
                     {walletChainName ?? `Chain ${walletChainId}`}
                   </strong>
-                  . The Multi-Sender dApp requires{" "}
+                  . PulseDrop requires{" "}
                   <strong className="text-cyan-300 font-medium">{chain.name}</strong> to disburse
                   batch transactions.
                 </AlertDescription>

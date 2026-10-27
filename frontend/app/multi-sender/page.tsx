@@ -128,14 +128,14 @@ export default function MultiSenderPage() {
             className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-cyan-300"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to ETN Pulse
+            Back to ETNVerse Hub
           </Link>
 
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl">
-                  Multi-Sender dApp
+                  PulseDrop
                 </h1>
                 <span
                   className={cn(
@@ -147,10 +147,13 @@ export default function MultiSenderPage() {
                 >
                   {networkBadge}
                 </span>
+                <span className="font-mono rounded-full border border-cyan-500/20 bg-cyan-950/30 px-2.5 py-1 text-[0.62rem] text-cyan-400">
+                  Non-custodial, batch-optimized execution
+                </span>
               </div>
               <p className="mt-1.5 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-400">
-                Bulk transfer native tokens, ERC-20 coins, or NFT collections in batch transactions.
-                Strictly non-custodial with automated checksum and address validation.
+                Mass Token &amp; NFT Distribution Engine — bulk transfer native tokens, ERC-20 coins, or NFT
+                collections in batch transactions with non-custodial, batch-optimized execution.
               </p>
             </div>
 
@@ -189,7 +192,7 @@ export default function MultiSenderPage() {
                 <span>
                   Your wallet is currently connected to{" "}
                   <strong className="text-white font-medium">{walletChainName ?? `Chain ${walletChainId}`}</strong>.
-                  Multi-Sender requires{" "}
+                  PulseDrop requires{" "}
                   <strong className="text-cyan-300 font-medium">{chain.name}</strong> to disburse
                   batch transactions.
                 </span>
@@ -327,7 +330,7 @@ export default function MultiSenderPage() {
           <p>
             Transactions are irreversible once broadcast and confirmed on the Electroneum network.
           </p>
-          <p className="font-mono">ETN Pulse · Multi-Sender Suite</p>
+          <p className="font-mono">ETNVerse Hub · PulseDrop</p>
         </footer>
       </motion.div>
 

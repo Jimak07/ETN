@@ -264,9 +264,9 @@ export function SwapCard() {
         {/* Card Header */}
         <div className="flex items-center justify-between pb-4">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-100">Swap</h2>
+            <h2 className="text-lg font-bold text-slate-100">PulseSwap</h2>
             <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[0.62rem] font-medium uppercase tracking-wider text-cyan-300">
-              ElectroSwap V2
+              Routed via ElectroSwap V2
             </span>
           </div>
 

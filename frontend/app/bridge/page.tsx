@@ -3,16 +3,16 @@ import type { Metadata } from "next";
 import { ModuleFallback } from "@/components/module-fallback";
 
 export const metadata: Metadata = {
-  title: "Bridge — ETN Utility Hub",
-  description: "Cross-chain bridge for moving liquidity between ETN-SC and EVM networks.",
+  title: "PulseBridge — ETNVerse Hub",
+  description: "Cross-Chain Liquidity Router for moving value between ETN-SC and EVM ecosystems.",
 };
 
 export default function BridgePage() {
   return (
     <ModuleFallback
-      title="Cross-Chain Bridge"
-      category="Liquidity Router"
-      description="Bridge tokens and native assets between Electroneum Smart Chain (ETN-SC) and major EVM ecosystems."
+      title="PulseBridge"
+      category="Cross-Chain Liquidity"
+      description="Cross-Chain Liquidity Router — bi-directional EVM asset bridge between Electroneum and major chains."
       iconKey="bridge"
       plannedFeatures={[
         "Bi-directional bridge routing for ETN, Ethereum, and BSC",

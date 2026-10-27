@@ -8,22 +8,30 @@ import { cn } from "@/lib/utils";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
-const title = "ETN Pulse — Electroneum Smart Chain Monitor";
+const title = "ETNVerse — The Electroneum Utility Hub";
 const description =
-  "Real-time block height, gas price and RPC latency telemetry for the Electroneum Smart Chain (ETN-SC, chain 52014).";
+  "The Decentralized Utility Hub for Electroneum. Real-time telemetry, mass token distribution, and decentralized swaps on Electroneum Smart Chain (Chain 52014).";
 
 export const metadata: Metadata = {
-  title,
+  title: {
+    default: "ETNVerse — The Electroneum Utility Hub",
+    template: "%s · ETNVerse Hub",
+  },
   description,
-  applicationName: "ETN Pulse",
+  applicationName: "ETNVerse Hub",
   keywords: [
     "Electroneum",
     "ETN",
+    "ETNVerse",
     "ETN-SC",
+    "VersePulse",
+    "PulseDrop",
+    "PulseSwap",
+    "VerseScan",
     "block explorer",
     "gas price",
     "RPC latency",
-    "Web3 dashboard",
+    "Web3 utility hub",
   ],
   openGraph: { title, description, type: "website" },
   twitter: { card: "summary_large_image", title, description },

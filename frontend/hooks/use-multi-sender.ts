@@ -614,7 +614,7 @@ export function useMultiSender() {
       if (!configured || !contractAddress) {
         fail(
           "Contract not deployed",
-          `The Multi-Sender contract is not yet deployed on this network (${chain.name}).`,
+          `The PulseDrop contract is not yet deployed on this network (${chain.name}).`,
         );
         return;
       }

@@ -3,16 +3,16 @@ import type { Metadata } from "next";
 import { ModuleFallback } from "@/components/module-fallback";
 
 export const metadata: Metadata = {
-  title: "Stake — ETN Utility Hub",
-  description: "Track validator yields and delegation rewards on Electroneum Smart Chain.",
+  title: "PulseStake — ETNVerse Hub",
+  description: "Validator Yields & Delegation Tracker on Electroneum Smart Chain.",
 };
 
 export default function StakePage() {
   return (
     <ModuleFallback
-      title="Validator Staking"
-      category="Consensus & Yields"
-      description="Track network consensus validators, monitor annual percentage yields (APY), and delegate ETN securely."
+      title="PulseStake"
+      category="Validator Yields"
+      description="Validator Yields & Delegation Tracker with consensus telemetry & APY calculator."
       iconKey="stake"
       plannedFeatures={[
         "Real-time validator uptime & performance telemetry",

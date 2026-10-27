@@ -3,16 +3,16 @@ import type { Metadata } from "next";
 import { ModuleFallback } from "@/components/module-fallback";
 
 export const metadata: Metadata = {
-  title: "Tip Studio — ETN Utility Hub",
-  description: "Creator monetization and tipping widgets on Electroneum Smart Chain.",
+  title: "PulseTip — ETNVerse Hub",
+  description: "Web3 Creator Micro-Tipping & Patronage with direct peer-to-peer ETN streams.",
 };
 
 export default function TipStudioPage() {
   return (
     <ModuleFallback
-      title="Creator Tip Studio"
-      category="Monetization"
-      description="Empowering digital creators with non-custodial tipping widgets, micro-donations, and social payment links."
+      title="PulseTip"
+      category="Creator Monetization"
+      description="Web3 Creator Micro-Tipping & Patronage — empowering digital creators with non-custodial tipping widgets and direct peer-to-peer ETN streams."
       iconKey="tip-studio"
       plannedFeatures={[
         "Embeddable tipping widgets for Web3 websites and social feeds",

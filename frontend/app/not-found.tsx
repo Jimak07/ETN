@@ -25,7 +25,7 @@ export default function NotFound() {
             Route Not Found
           </h1>
           <p className="mt-2 text-xs sm:text-sm text-slate-400 leading-relaxed">
-            The page or module you requested does not exist on the ETN Utility Hub or has been moved.
+            The page or module you requested does not exist on ETNVerse Hub or has been moved.
           </p>
 
           <div className="mt-6 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-center">
@@ -34,7 +34,7 @@ export default function NotFound() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-2.5 text-xs font-semibold text-slate-950 shadow-glow transition hover:bg-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to Hub</span>
+              <span>Back to ETNVerse Hub</span>
             </Link>
           </div>
         </div>

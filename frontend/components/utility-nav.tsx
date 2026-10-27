@@ -26,50 +26,50 @@ interface NavModule {
 
 const NAV_MODULES: readonly NavModule[] = [
   {
-    name: "ETN Pulse",
-    shortLabel: "Pulse",
+    name: "VersePulse",
+    shortLabel: "VersePulse",
     href: "/",
     icon: Activity,
     isLive: true,
   },
   {
-    name: "Multi-Sender",
-    shortLabel: "Multi-Sender",
+    name: "PulseDrop",
+    shortLabel: "PulseDrop",
     href: "/multi-sender",
     icon: Send,
     isLive: true,
   },
   {
-    name: "Swap",
-    shortLabel: "Swap",
+    name: "PulseSwap",
+    shortLabel: "PulseSwap",
     href: "/swap",
     icon: ArrowLeftRight,
     isLive: true,
   },
   {
-    name: "Tip Studio",
-    shortLabel: "Tip Studio",
-    href: null,
-    icon: HeartHandshake,
-    isLive: false,
-  },
-  {
-    name: "Portfolio",
-    shortLabel: "Portfolio",
+    name: "VerseScan",
+    shortLabel: "VerseScan",
     href: null,
     icon: Wallet,
     isLive: false,
   },
   {
-    name: "Stake",
-    shortLabel: "Stake",
+    name: "PulseTip",
+    shortLabel: "PulseTip",
+    href: null,
+    icon: HeartHandshake,
+    isLive: false,
+  },
+  {
+    name: "PulseStake",
+    shortLabel: "PulseStake",
     href: null,
     icon: Coins,
     isLive: false,
   },
   {
-    name: "Bridge",
-    shortLabel: "Bridge",
+    name: "PulseBridge",
+    shortLabel: "PulseBridge",
     href: null,
     icon: Layers,
     isLive: false,
@@ -77,7 +77,7 @@ const NAV_MODULES: readonly NavModule[] = [
 ];
 
 /**
- * Universal Utility Hub navigation bar.
+ * Universal ETNVerse Hub navigation bar.
  * Keeps live tools interactive with glowing badges while strictly locking down
  * unbuilt roadmap modules with muted "COMING SOON" pills and pointer prevention.
  */
@@ -98,17 +98,17 @@ export function UtilityNav() {
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
             </span>
             <span className="bg-gradient-to-r from-slate-100 via-slate-200 to-cyan-300 bg-clip-text font-bold text-transparent">
-              Utility Hub
+              ETNVerse Hub
             </span>
           </Link>
-          <span className="hidden sm:inline-flex items-center rounded-full border border-slate-800 bg-slate-900/60 px-2 py-0.5 text-[0.62rem] font-mono text-slate-400">
-            {ETN_CHAIN_NAME} · {ETN_CHAIN_ID}
+          <span className="hidden sm:inline-flex items-center rounded-full border border-slate-800 bg-slate-900/60 px-2.5 py-0.5 text-[0.62rem] font-mono text-slate-400">
+            Chain {ETN_CHAIN_ID}
           </span>
         </div>
 
         {/* Module Navigation Tabs */}
         <nav
-          aria-label="Utility Hub modules"
+          aria-label="ETNVerse Hub modules"
           className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-xs"
         >
           {NAV_MODULES.map((item) => {
@@ -147,7 +147,7 @@ export function UtilityNav() {
               <div
                 key={item.name}
                 aria-disabled="true"
-                title={`${item.name} is coming soon to the ETN Utility Hub`}
+                title={`${item.name} is coming soon to ETNVerse Hub`}
                 className="pointer-events-none select-none flex items-center gap-1.5 rounded-lg border border-transparent bg-slate-950/40 px-2.5 py-1.5 text-xs font-medium text-slate-500 opacity-60 cursor-not-allowed shrink-0"
               >
                 <Icon className="h-3.5 w-3.5 text-slate-600" />

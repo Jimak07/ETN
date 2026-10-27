@@ -40,7 +40,7 @@ export function Hero({ connection, lastUpdated, isFetching, isStale, onRefresh }
       <div className="flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-3">
           <p className="num text-[0.68rem] uppercase tracking-[0.28em] text-slate-500">
-            {ETN_CHAIN_NAME} Smart Chain · Chain {ETN_CHAIN_ID}
+            Built on Electroneum Smart Chain (Chain {ETN_CHAIN_ID})
           </p>
 
           <div className="flex items-center gap-3">
@@ -59,13 +59,12 @@ export function Hero({ connection, lastUpdated, isFetching, isStale, onRefresh }
               />
             </span>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">
-              ETN Pulse
+              VersePulse
             </h1>
           </div>
 
           <p className="max-w-xl text-sm leading-relaxed text-slate-400">
-            Real-time block height, gas price and RPC latency telemetry — the monitoring core of the
-            Electroneum utility hub.
+            Real-Time Block, Gas &amp; RPC Telemetry Monitor — direct RPC probes to official &amp; partner nodes across the Electroneum network.
           </p>
         </div>
 
@@ -97,7 +96,7 @@ export function Hero({ connection, lastUpdated, isFetching, isStale, onRefresh }
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-800/80 pt-4 text-[0.7rem] text-slate-500">
-        <span className="num">official + ankr endpoints</span>
+        <span className="num">Direct RPC probes to official &amp; partner nodes</span>
         <span className="num">explorer · blockexplorer.electroneum.com</span>
       </div>
     </header>

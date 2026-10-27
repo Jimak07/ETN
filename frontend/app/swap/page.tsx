@@ -31,22 +31,22 @@ export default function SwapPage() {
             className="inline-flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-cyan-300"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to ETN Pulse
+            Back to ETNVerse Hub
           </Link>
 
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl">
-                  ElectroSwap
+                  PulseSwap
                 </h1>
                 <span className="font-mono rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2.5 py-1 text-[0.62rem] font-medium uppercase tracking-[0.14em] text-cyan-300">
-                  Electroneum · {ETN_MAINNET.id}
+                  Routed via ElectroSwap V2 Smart Contracts
                 </span>
               </div>
               <p className="mt-1.5 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-400">
-                Swap native ETN, wrapped assets, and verified ecosystem tokens with automated liquidity checks,
-                slippage protection, and on-chain contract import.
+                Automated Decentralized Token Exchange — swap native ETN, wrapped assets, and verified ecosystem
+                tokens with automated liquidity checks, slippage protection, and on-chain contract import.
               </p>
             </div>
 
@@ -84,7 +84,7 @@ export default function SwapPage() {
           <p>
             Swaps route through decentralized ElectroSwap V2 liquidity pools on Electroneum Mainnet.
           </p>
-          <p className="font-mono">ETN Pulse · DEX Utility Hub</p>
+          <p className="font-mono">ETNVerse Hub · PulseSwap</p>
         </footer>
       </motion.div>
     </main>

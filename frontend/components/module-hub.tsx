@@ -17,6 +17,7 @@ interface HubModule {
   name: string;
   category: string;
   description: string;
+  attribution: string;
   icon: typeof Activity;
   href: string | null;
   isLive: boolean;
@@ -24,57 +25,64 @@ interface HubModule {
 
 const MODULES: readonly HubModule[] = [
   {
-    name: "ETN Pulse",
+    name: "VersePulse",
     category: "Telemetry & Health",
-    description: "Sub-second RPC latency monitoring, real-time block progression, and gas fee heatmap.",
+    description: "Real-Time Block, Gas & RPC Telemetry Monitor",
+    attribution: "Direct RPC probes to official & partner nodes",
     icon: Activity,
     href: "/",
     isLive: true,
   },
   {
-    name: "Multi-Sender",
-    category: "ETN Disperse",
-    description: "Batch distribute native ETN, ERC-20 tokens, and ERC-721/1155 NFTs with CSV import and sanitization.",
+    name: "PulseDrop",
+    category: "Mass Distribution",
+    description: "Mass Token & NFT Distribution Engine",
+    attribution: "Non-custodial, batch-optimized execution",
     icon: Send,
     href: "/multi-sender",
     isLive: true,
   },
   {
-    name: "Swap",
-    category: "ElectroSwap DEX",
-    description: "Decentralized automated liquidity pools, custom ERC-20 token imports, and frontrun-protected swaps.",
+    name: "PulseSwap",
+    category: "Decentralized Exchange",
+    description: "Automated Decentralized Token Exchange",
+    attribution: "Routed via ElectroSwap V2 Smart Contracts",
     icon: ArrowLeftRight,
     href: "/swap",
     isLive: true,
   },
   {
-    name: "Tip Studio",
-    category: "Creator Monetization",
-    description: "Non-custodial creator tipping widgets, recurring micro-patronage, and social payment streams.",
-    icon: HeartHandshake,
-    href: null,
-    isLive: false,
-  },
-  {
-    name: "Wallet Scanner / Portfolio",
-    category: "Blockscout Lookups",
-    description: "Wallet address lookup, ERC-20 token holdings, transaction history, and cumulative gas analytics.",
+    name: "VerseScan",
+    category: "ON-CHAIN INTELLIGENCE",
+    description: "On-Chain Portfolio & Address Intelligence",
+    attribution: "Powered by Electroneum Network Indexer",
     icon: Wallet,
     href: null,
     isLive: false,
   },
   {
-    name: "Stake",
+    name: "PulseTip",
+    category: "Creator Monetization",
+    description: "Web3 Creator Micro-Tipping & Patronage",
+    attribution: "Direct peer-to-peer ETN streams",
+    icon: HeartHandshake,
+    href: null,
+    isLive: false,
+  },
+  {
+    name: "PulseStake",
     category: "Validator Yields",
-    description: "Validator node performance, delegated ETN staking rewards, and network consensus analytics.",
+    description: "Validator Yields & Delegation Tracker",
+    attribution: "Consensus telemetry & APY calculator",
     icon: Coins,
     href: null,
     isLive: false,
   },
   {
-    name: "Bridge",
+    name: "PulseBridge",
     category: "Cross-Chain Liquidity",
-    description: "Secure cross-chain bridge routing value between ETN-SC and major EVM ecosystems.",
+    description: "Cross-Chain Liquidity Router",
+    attribution: "Bi-directional EVM asset bridge",
     icon: Layers,
     href: null,
     isLive: false,
@@ -82,16 +90,16 @@ const MODULES: readonly HubModule[] = [
 ];
 
 /**
- * Utility Hub Dashboard Shell:
- * - Active ("LIVE") modules: ETN Pulse, Multi-Sender, and Swap are interactive with glowing badges.
- * - Locked ("COMING SOON") modules: Tip Studio, Wallet Scanner / Portfolio, Stake, and Bridge are
+ * ETNVerse Hub Dashboard Shell:
+ * - Active ("LIVE") modules: VersePulse, PulseDrop, and PulseSwap are interactive with glowing badges.
+ * - Locked ("COMING SOON") modules: PulseTip, VerseScan, PulseStake, and PulseBridge are
  *   dimmed (opacity-60), non-interactive (pointer-events-none), and marked with muted COMING SOON badges.
  */
 export function ModuleHub() {
   return (
     <GlassCard className="p-5 sm:p-6">
       <SectionHeading
-        title="Utility Hub Modules"
+        title="ETNVerse Suite Modules"
         subtitle="Active tools are live on Electroneum Mainnet — upcoming modules locked until deployment"
         icon={<Layers className="h-4 w-4 text-cyan-400" />}
       />
@@ -130,6 +138,11 @@ export function ModuleHub() {
                   <p className="mt-1 text-xs leading-relaxed text-slate-400">
                     {module.description}
                   </p>
+                  <div className="mt-2.5">
+                    <span className="inline-flex items-center rounded-md border border-cyan-500/20 bg-cyan-950/40 px-2 py-0.5 text-[0.6rem] font-mono text-cyan-300/90">
+                      {module.attribution}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between border-t border-cyan-500/15 pt-3 text-[0.7rem] text-cyan-400/90 font-medium">
@@ -164,6 +177,11 @@ export function ModuleHub() {
                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
                   {module.description}
                 </p>
+                <div className="mt-2.5">
+                  <span className="inline-flex items-center rounded-md border border-slate-800 bg-slate-900/60 px-2 py-0.5 text-[0.6rem] font-mono text-slate-400">
+                    {module.attribution}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-4 flex items-center gap-1.5 border-t border-slate-800/60 pt-3 text-[0.7rem] text-slate-500">

@@ -219,7 +219,7 @@ export default function Page() {
         <ModuleHub />
 
         <footer className="flex flex-col gap-2 border-t border-slate-800/80 pt-5 text-[0.7rem] text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-          <p className="num">ETN Pulse · chain 52014 · read-only network telemetry</p>
+          <p className="num">ETNVerse Hub · VersePulse · Built on Electroneum Smart Chain (Chain 52014)</p>
           <a
             href={ETN_EXPLORER_URL}
             target="_blank"

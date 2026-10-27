@@ -3,19 +3,19 @@ import type { Metadata } from "next";
 import { ModuleFallback } from "@/components/module-fallback";
 
 export const metadata: Metadata = {
-  title: "Wallet Scanner — ETN Utility Hub",
-  description: "Electroneum Smart Chain address explorer and portfolio scanner.",
+  title: "VerseScan — ETNVerse Hub",
+  description: "On-Chain Portfolio & Address Intelligence powered by Electroneum Network Indexer.",
 };
 
 export default function ScannerPage() {
   return (
     <ModuleFallback
-      title="Wallet Scanner"
-      category="Blockscout Lookups"
-      description="Search any Electroneum Smart Chain address to inspect token transfers, smart contract interactions, and balances."
+      title="VerseScan"
+      category="ON-CHAIN INTELLIGENCE"
+      description="On-Chain Portfolio & Address Intelligence — search any Electroneum Smart Chain address to inspect token transfers, smart contract interactions, and balances."
       iconKey="scanner"
       plannedFeatures={[
-        "Blockscout V2 API automated token and NFT discovery",
+        "Electroneum Network Indexer automated token and NFT discovery",
         "Contract verification and ABI decompilation inspection",
         "Wallet risk profiling and token holder analytics",
       ]}
