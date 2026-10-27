@@ -83,7 +83,7 @@ export function NetworkSelector({
    * problem the user has to fix. A disconnected wallet is reported as the chain
    * it would default to, with the missing connection named underneath.
    */
-  const disconnected = chainId === null;
+  const disconnected = !connected;
   const mismatch = !disconnected && !chainOk;
   const dotTone = disconnected
     ? "bg-slate-600"
