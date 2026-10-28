@@ -429,6 +429,25 @@ export function usePortfolio(initialAddress?: string) {
     return targetAddress.toLowerCase() !== account.toLowerCase();
   }, [isBundleMode, account, targetAddress]);
 
+  const connectWallet = useCallback(async () => {
+    const injected = provider ?? getEthereumProvider();
+    if (!injected) {
+      window.open("https://metamask.io/download/", "_blank");
+      return;
+    }
+    try {
+      const res = await injected.request({ method: "eth_requestAccounts" });
+      const first = Array.isArray(res) && res[0] ? (res[0] as string) : null;
+      if (first && isAddress(first)) {
+        const checksum = getAddress(first);
+        setAccount(checksum);
+        setTargetAddress(checksum);
+      }
+    } catch (err) {
+      console.error("Wallet connection declined or failed:", err);
+    }
+  }, [provider]);
+
   return {
     targetAddress,
     summary,
@@ -446,6 +465,7 @@ export function usePortfolio(initialAddress?: string) {
     refresh,
     account,
     chainId,
+    connectWallet,
     isWhaleMode,
     isBundleMode,
     selectedBundleAddresses,

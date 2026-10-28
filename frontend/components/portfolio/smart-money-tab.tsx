@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   ArrowLeftRight,
+  ArrowRight,
   ArrowUpRight,
   Crown,
   ExternalLink,
@@ -14,6 +15,7 @@ import {
   Search,
   ShieldCheck,
   TrendingUp,
+  Trophy,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -60,6 +62,32 @@ export function SmartMoneyTab({ etnUsdPrice, onSelectAddress }: SmartMoneyTabPro
 
   return (
     <div className="space-y-8">
+      {/* Top 50 Token Holders Leaderboard CTA Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-orange-500/10 p-4 shadow-md">
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <Trophy className="h-4 w-4 text-amber-400" />
+            <h4 className="text-sm font-bold text-white">
+              Top 50 Token Holders &amp; Whale Leaderboard
+            </h4>
+            <span className="rounded bg-amber-400/20 border border-amber-400/40 px-1.5 py-0.2 text-[0.55rem] font-bold text-amber-300 uppercase">
+              NEW
+            </span>
+          </div>
+          <p className="text-xs text-slate-400">
+            Inspect real-time on-chain token distributions and top wallets for Native ETN, BOLT, WETN, and 50+ ecosystem tokens without leaving MyVerse.
+          </p>
+        </div>
+
+        <Link
+          href="/portfolio/leaderboard"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-400 px-3.5 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-amber-300 shadow-glow shrink-0 self-start sm:self-auto"
+        >
+          <span>Explore Leaderboard</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+
       {/* 1. Curated Smart Money Leaderboard */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">

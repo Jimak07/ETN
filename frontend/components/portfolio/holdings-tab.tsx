@@ -11,6 +11,7 @@ import {
   Layers,
   TrendingDown,
   TrendingUp,
+  Trophy,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -184,6 +185,15 @@ export function HoldingsTab({
                     >
                       {token.isNative ? "Native Coin" : `${token.address.slice(0, 6)}...${token.address.slice(-4)}`}
                     </a>
+                    <span>·</span>
+                    <Link
+                      href={`/portfolio/leaderboard?token=${token.address}`}
+                      title={`View Top Holders for ${token.symbol}`}
+                      className="font-mono text-[0.68rem] text-amber-400/90 hover:text-amber-300 transition inline-flex items-center gap-0.5"
+                    >
+                      <Trophy className="h-2.5 w-2.5" />
+                      <span>Top Holders</span>
+                    </Link>
 
                     {/* Multi-wallet breakdown badge */}
                     {hasBreakdown && (
