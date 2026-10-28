@@ -52,13 +52,13 @@ const MODULES: readonly HubModule[] = [
     isLive: true,
   },
   {
-    name: "VerseScan",
+    name: "MyVerse",
     category: "ON-CHAIN INTELLIGENCE",
-    description: "On-Chain Portfolio & Address Intelligence",
-    attribution: "Powered by Electroneum Network Indexer",
+    description: "Personal Portfolio, Whale Tracker & DeFi Intelligence",
+    attribution: "Real-time balance & LP indexing",
     icon: Wallet,
-    href: null,
-    isLive: false,
+    href: "/portfolio",
+    isLive: true,
   },
   {
     name: "PulseTip",
@@ -91,8 +91,8 @@ const MODULES: readonly HubModule[] = [
 
 /**
  * ETNVerse Hub Dashboard Shell:
- * - Active ("LIVE") modules: VersePulse, PulseDrop, and PulseSwap are interactive with glowing badges.
- * - Locked ("COMING SOON") modules: PulseTip, VerseScan, PulseStake, and PulseBridge are
+ * - Active ("LIVE") modules: VersePulse, PulseDrop, PulseSwap, and MyVerse are interactive with glowing badges.
+ * - Locked ("COMING SOON") modules: PulseTip, PulseStake, and PulseBridge are
  *   dimmed (opacity-60), non-interactive (pointer-events-none), and marked with muted COMING SOON badges.
  */
 export function ModuleHub() {

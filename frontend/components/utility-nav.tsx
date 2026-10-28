@@ -47,11 +47,11 @@ const NAV_MODULES: readonly NavModule[] = [
     isLive: true,
   },
   {
-    name: "VerseScan",
-    shortLabel: "VerseScan",
-    href: null,
+    name: "MyVerse",
+    shortLabel: "MyVerse",
+    href: "/portfolio",
     icon: Wallet,
-    isLive: false,
+    isLive: true,
   },
   {
     name: "PulseTip",
