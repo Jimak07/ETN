@@ -2,6 +2,14 @@ import type { Address } from "viem";
 
 export type Timeframe = "24H" | "7D" | "30D";
 
+export interface WalletTokenBreakdown {
+  address: Address;
+  label?: string;
+  balanceFormatted: string;
+  balanceNumber: number;
+  valueUsd?: number;
+}
+
 export interface TokenHolding {
   address: Address;
   symbol: string;
@@ -18,6 +26,13 @@ export interface TokenHolding {
   totalValueUsd: number;
   allocationPercent: number; // 0 to 100
   isVerified?: boolean;
+  // Phase 2 Pro: PnL & Cost Basis Engine
+  costBasisEtn?: number;
+  costBasisUsd?: number;
+  unrealizedPnLUsd?: number;
+  unrealizedPnLPercent?: number;
+  // Phase 2 Pro: Multi-Wallet Bundled Breakdown
+  walletBreakdown?: WalletTokenBreakdown[];
 }
 
 export interface DefiPosition {
@@ -43,6 +58,12 @@ export interface DefiPosition {
   totalValueUsd: number;
   totalValueEtn: number;
   actionUrl?: string;
+  walletAddress?: Address;
+  // Phase 2 Pro: Impermanent Loss & Yield Analytics
+  impermanentLossPercent?: number;
+  hodlValueUsd?: number;
+  earnedFeesUsd?: number;
+  netLpReturnPercent?: number;
 }
 
 export interface NftHolding {
@@ -56,6 +77,7 @@ export interface NftHolding {
   imageUrl: string | null;
   attributes: Array<{ trait_type: string; value: string }>;
   explorerUrl: string;
+  walletAddress?: Address;
 }
 
 export interface WalletTransaction {
@@ -81,6 +103,7 @@ export interface TokenApprovalItem {
   isUnlimited: boolean;
   allowanceFormatted: string;
   riskLevel: "safe" | "caution" | "warning";
+  ownerAddress?: Address;
 }
 
 export interface WalletIntelligence {
@@ -91,6 +114,7 @@ export interface WalletIntelligence {
   walletAgeDays: number;
   firstTxDate: string | null;
   approvals: TokenApprovalItem[];
+  recentTransactions?: WalletTransaction[];
 }
 
 export interface PortfolioHistoryPoint {
@@ -117,6 +141,12 @@ export interface PortfolioSummary {
   intelligence: WalletIntelligence;
   history: PortfolioHistoryPoint[];
   lastUpdated: number;
+  // Phase 2 Pro: Multi-Wallet Bundle
+  isBundle?: boolean;
+  bundledAddresses?: Address[];
+  // Phase 2 Pro: Best/Worst Performers
+  bestPerformer?: { symbol: string; pnlPercent: number; pnlUsd: number } | null;
+  worstPerformer?: { symbol: string; pnlPercent: number; pnlUsd: number } | null;
 }
 
 export interface WatchlistItem {
@@ -124,4 +154,32 @@ export interface WatchlistItem {
   label: string;
   category?: string;
   addedAt: number;
+}
+
+// Phase 2 Pro: Smart Money & Whale Radar
+export interface SmartMoneyWallet {
+  address: Address;
+  label: string;
+  category: "Whale" | "Top LP" | "DEX Arbitrageur" | "Protocol Treasury";
+  tag: string;
+  winRatePercent: number;
+  holdingValueUsd: number;
+  topAsset: string;
+  description: string;
+}
+
+export interface WhaleSwapEvent {
+  id: string;
+  txHash: string;
+  timestamp: string;
+  timeAgo: string;
+  walletAddress: Address;
+  walletLabel?: string;
+  action: "BUY" | "SELL";
+  tokenIn: { symbol: string; amount: string };
+  tokenOut: { symbol: string; amount: string };
+  valueEtn: number;
+  valueUsd: number;
+  pairAddress: Address;
+  isLargeWhale: boolean;
 }

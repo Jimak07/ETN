@@ -1,17 +1,20 @@
 "use client";
 
-import { ArrowUpRight, Coins, ExternalLink, Layers, Sparkles } from "lucide-react";
+import { ArrowUpRight, Coins, Crown, ExternalLink, Layers, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
+import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import type { DefiPosition } from "@/lib/portfolio/types";
+import { cn } from "@/lib/cn";
 
 interface DefiTabProps {
   positions: DefiPosition[];
   loading: boolean;
+  isBundle?: boolean;
 }
 
-export function DefiTab({ positions, loading }: DefiTabProps) {
+export function DefiTab({ positions, loading, isBundle = false }: DefiTabProps) {
   if (loading && positions.length === 0) {
     return (
       <div className="space-y-3 py-4">
@@ -43,21 +46,33 @@ export function DefiTab({ positions, loading }: DefiTabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3.5 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         {positions.map((pos) => {
+          const hasIlMetrics =
+            pos.impermanentLossPercent !== undefined &&
+            pos.hodlValueUsd !== undefined;
+          const isNetReturnPositive = (pos.netLpReturnPercent ?? 0) >= 0;
+
           return (
             <div
               key={pos.id}
               className="relative flex flex-col justify-between overflow-hidden rounded-xl border border-cyan-500/25 bg-cyan-500/[0.03] p-5 transition-all duration-200 hover:border-cyan-400/50 hover:bg-cyan-500/[0.06]"
             >
-              <div className="space-y-3">
+              <div className="space-y-3.5">
                 {/* Header: Protocol & Category */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-300 ring-1 ring-inset ring-cyan-500/30">
                       <Layers className="h-3.5 w-3.5" />
                     </span>
-                    <span className="text-xs font-bold text-slate-100">{pos.name}</span>
+                    <div>
+                      <span className="text-xs font-bold text-slate-100">{pos.name}</span>
+                      {isBundle && pos.walletAddress && (
+                        <div className="font-mono text-[0.62rem] text-slate-500">
+                          Wallet: {pos.walletAddress.slice(0, 6)}...{pos.walletAddress.slice(-4)}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[0.62rem] font-semibold text-cyan-300">
@@ -98,12 +113,61 @@ export function DefiTab({ positions, loading }: DefiTabProps) {
                     </div>
                   )}
                 </div>
+
+                {/* PRO LP Yield & Impermanent Loss Engine */}
+                {IS_PREMIUM_USER && hasIlMetrics && (
+                  <div className="rounded-xl border border-slate-800/70 bg-slate-950/90 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1 text-[0.62rem] font-bold uppercase tracking-wider text-slate-400">
+                        <Crown className="h-2.5 w-2.5 text-cyan-400" />
+                        LP Yield & IL Analytics
+                      </span>
+                      <span className="rounded bg-cyan-400/20 border border-cyan-400/40 px-1 py-0.2 text-[0.55rem] font-bold uppercase text-cyan-300">
+                        PRO
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                      {/* Impermanent Loss */}
+                      <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2">
+                        <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                          Impermanent Loss
+                        </p>
+                        <p className="font-mono text-xs font-bold text-rose-400 mt-0.5">
+                          {pos.impermanentLossPercent?.toFixed(2)}%
+                        </p>
+                        <p className="text-[0.58rem] text-slate-500 mt-0.5">
+                          vs HODL ${pos.hodlValueUsd?.toFixed(2)}
+                        </p>
+                      </div>
+
+                      {/* Earned Fees & Net Return */}
+                      <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2">
+                        <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                          Net LP Return
+                        </p>
+                        <p
+                          className={cn(
+                            "font-mono text-xs font-bold mt-0.5",
+                            isNetReturnPositive ? "text-emerald-400" : "text-rose-400"
+                          )}
+                        >
+                          {isNetReturnPositive ? "+" : ""}
+                          {pos.netLpReturnPercent?.toFixed(2)}%
+                        </p>
+                        <p className="text-[0.58rem] text-slate-500 mt-0.5">
+                          Fees: +${pos.earnedFeesUsd?.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Footer Values & Action */}
               <div className="mt-4 flex items-center justify-between border-t border-cyan-500/15 pt-3">
                 <div>
-                  <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">Total Value</p>
+                  <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">Total LP Value</p>
                   <p className="font-mono text-base font-extrabold text-white">
                     ${pos.totalValueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>

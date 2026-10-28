@@ -5,8 +5,11 @@ import {
   Activity,
   ArrowLeft,
   Coins,
+  Crown,
   Image as ImageIcon,
   Layers,
+  Radar,
+  Radio,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -19,11 +22,14 @@ import { HoldingsTab } from "@/components/portfolio/holdings-tab";
 import { IntelligenceTab } from "@/components/portfolio/intelligence-tab";
 import { NftTab } from "@/components/portfolio/nft-tab";
 import { PortfolioHeader } from "@/components/portfolio/portfolio-header";
+import { SmartMoneyTab } from "@/components/portfolio/smart-money-tab";
 import { WatchlistBar } from "@/components/portfolio/watchlist-bar";
 import { usePortfolio } from "@/hooks/use-portfolio";
+import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
 import { cn } from "@/lib/cn";
 
-type ActiveTab = "holdings" | "defi" | "nfts" | "intelligence";
+type ActiveTab = "holdings" | "defi" | "nfts" | "intelligence" | "smart-money";
 
 export default function PortfolioPage() {
   const {
@@ -41,7 +47,19 @@ export default function PortfolioPage() {
     toggleWatchlist,
     selectAddress,
     refresh,
+    account,
     isWhaleMode,
+    isBundleMode,
+    selectedBundleAddresses,
+    toggleBundleMode,
+    toggleSelectBundleAddress,
+    selectAllBundleAddresses,
+    clearBundleAddresses,
+    revokingSpender,
+    batchRevoking,
+    revokeProgress,
+    revokeAllowance,
+    batchRevokeAllowances,
   } = usePortfolio();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("holdings");
@@ -82,7 +100,7 @@ export default function PortfolioPage() {
           isContract={summary?.isContract}
         />
 
-        {/* Watchlist Bar for Fast Switching */}
+        {/* Watchlist Bar for Fast Switching & Multi-Wallet Bundle Mode */}
         <WatchlistBar
           watchlist={watchlist}
           activeAddress={targetAddress}
@@ -92,6 +110,12 @@ export default function PortfolioPage() {
               toggleWatchlist();
             }
           }}
+          isBundleMode={isBundleMode}
+          selectedBundleAddresses={selectedBundleAddresses}
+          onToggleBundleMode={toggleBundleMode}
+          onToggleSelectBundle={toggleSelectBundleAddress}
+          onSelectAllBundle={selectAllBundleAddresses}
+          onClearBundle={clearBundleAddresses}
         />
 
         {/* Error Alert Banner */}
@@ -109,7 +133,7 @@ export default function PortfolioPage() {
           loading={loading}
         />
 
-        {/* 4 Clean Tabs */}
+        {/* 5 Clean Tabs (Holdings, DeFi, NFTs, Intelligence, Smart Money Radar) */}
         <div className="space-y-4">
           <div className="flex items-center gap-1.5 overflow-x-auto border-b border-slate-800 pb-2 no-scrollbar">
             <button
@@ -167,6 +191,33 @@ export default function PortfolioPage() {
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>Intelligence &amp; Approvals</span>
             </button>
+
+            {/* 5th Tab: Smart Money Radar (PRO) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab("smart-money")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold transition-all duration-200 shrink-0",
+                activeTab === "smart-money"
+                  ? "bg-cyan-400 text-slate-950 shadow-glow"
+                  : "text-slate-400 hover:bg-slate-900/60 hover:text-slate-200"
+              )}
+            >
+              <Radar className="h-3.5 w-3.5 text-rose-400" />
+              <span>Smart Money Radar</span>
+              {IS_PREMIUM_USER && (
+                <span
+                  className={cn(
+                    "rounded px-1 py-0.2 text-[0.55rem] font-bold uppercase",
+                    activeTab === "smart-money"
+                      ? "bg-slate-950 text-cyan-300"
+                      : "bg-cyan-400/20 text-cyan-300 border border-cyan-400/40"
+                  )}
+                >
+                  PRO
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Active Tab View */}
@@ -177,6 +228,9 @@ export default function PortfolioPage() {
                 hideDust={hideDust}
                 onToggleHideDust={toggleHideDust}
                 loading={loading}
+                bestPerformer={summary?.bestPerformer}
+                worstPerformer={summary?.worstPerformer}
+                isBundle={summary?.isBundle}
               />
             )}
 
@@ -184,6 +238,7 @@ export default function PortfolioPage() {
               <DefiTab
                 positions={summary?.defiPositions ?? []}
                 loading={loading}
+                isBundle={summary?.isBundle}
               />
             )}
 
@@ -208,6 +263,24 @@ export default function PortfolioPage() {
                   }
                 }
                 loading={loading}
+                canRevoke={!isWhaleMode && !isBundleMode && Boolean(account)}
+                revokingSpender={revokingSpender}
+                batchRevoking={batchRevoking}
+                revokeProgress={revokeProgress}
+                onRevoke={revokeAllowance}
+                onBatchRevoke={batchRevokeAllowances}
+                onExportTaxLedger={() => {
+                  if (summary) {
+                    exportTaxLedgerCsv(summary, summary.intelligence?.recentTransactions ?? []);
+                  }
+                }}
+              />
+            )}
+
+            {activeTab === "smart-money" && (
+              <SmartMoneyTab
+                etnUsdPrice={summary?.etnUsdPrice ?? 0.00213}
+                onSelectAddress={selectAddress}
               />
             )}
           </div>

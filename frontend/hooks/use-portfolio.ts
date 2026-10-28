@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAddress, isAddress, type Address } from "viem";
+import { erc20Abi, getAddress, isAddress, type Address } from "viem";
 
 import { DEFAULT_EXPLORER_ADDRESS, STORAGE_KEYS } from "@/lib/constants/myverse";
 import { ETN_MAINNET } from "@/lib/etn";
-import { getReadClient } from "@/lib/multi-sender/contract";
-import { fetchPortfolioSummary } from "@/lib/portfolio/fetcher";
-import type { PortfolioSummary, Timeframe, WatchlistItem } from "@/lib/portfolio/types";
+import { getReadClient, getWalletClient } from "@/lib/multi-sender/contract";
+import { fetchBundleSummary, fetchPortfolioSummary } from "@/lib/portfolio/fetcher";
+import type { PortfolioSummary, Timeframe, TokenApprovalItem, WatchlistItem } from "@/lib/portfolio/types";
 import {
   addToWatchlist as saveToWatchlist,
   getSavedWatchlist,
@@ -40,6 +40,15 @@ export function usePortfolio(initialAddress?: string) {
 
   // Watchlist state
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+
+  // Bundle Mode state (PRO: combine up to 10 wallets)
+  const [isBundleMode, setIsBundleMode] = useState<boolean>(false);
+  const [selectedBundleAddresses, setSelectedBundleAddresses] = useState<Address[]>([]);
+
+  // Revoke state
+  const [revokingSpender, setRevokingSpender] = useState<string | null>(null);
+  const [batchRevoking, setBatchRevoking] = useState<boolean>(false);
+  const [revokeProgress, setRevokeProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Track initial mount to auto-switch to connected wallet if user connects
   const initialWalletSyncedRef = useRef(false);
@@ -148,9 +157,38 @@ export function usePortfolio(initialAddress?: string) {
     });
   }, []);
 
-  // 3. Fetch Portfolio Data
+  // 3. Fetch Portfolio Data (Single or Bundle Mode)
   const loadPortfolio = useCallback(
-    async (address: string, isRefresh = false) => {
+    async (address: string, isRefresh = false, bundleAddrs?: Address[]) => {
+      if (bundleAddrs && bundleAddrs.length > 0) {
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+        setError(null);
+
+        const client = getReadClient(ETN_MAINNET.id);
+        if (!client) {
+          setError("Failed to initialize Electroneum RPC client.");
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+
+        try {
+          const data = await fetchBundleSummary(bundleAddrs, client);
+          setSummary(data);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Failed to load bundle telemetry";
+          setError(msg);
+        } finally {
+          setLoading(false);
+          setRefreshing(false);
+        }
+        return;
+      }
+
       if (!isAddress(address)) {
         setError(`"${address}" is not a valid 0x address.`);
         setLoading(false);
@@ -187,12 +225,16 @@ export function usePortfolio(initialAddress?: string) {
   );
 
   useEffect(() => {
-    if (targetAddress && isAddress(targetAddress)) {
-      void loadPortfolio(targetAddress);
+    if (isBundleMode) {
+      if (selectedBundleAddresses.length > 0) {
+        void loadPortfolio(targetAddress, false, selectedBundleAddresses);
+      }
+    } else if (targetAddress && isAddress(targetAddress)) {
+      void loadPortfolio(targetAddress, false);
     }
-  }, [targetAddress, loadPortfolio]);
+  }, [targetAddress, isBundleMode, selectedBundleAddresses, loadPortfolio]);
 
-  // 4. Watchlist actions
+  // 4. Watchlist & Bundle actions
   const isWatchlisted = useMemo(() => {
     if (!targetAddress || !isAddress(targetAddress)) return false;
     const lower = targetAddress.toLowerCase();
@@ -205,6 +247,10 @@ export function usePortfolio(initialAddress?: string) {
       if (isWatchlisted) {
         const updated = deleteFromWatchlist(targetAddress);
         setWatchlist(updated);
+        // Also remove from selected bundle if present
+        setSelectedBundleAddresses((prev) =>
+          prev.filter((a) => a.toLowerCase() !== targetAddress.toLowerCase())
+        );
       } else {
         const updated = saveToWatchlist(targetAddress, label || "Saved Wallet");
         setWatchlist(updated);
@@ -216,18 +262,172 @@ export function usePortfolio(initialAddress?: string) {
   const selectAddress = useCallback((newAddress: string) => {
     if (isAddress(newAddress)) {
       const checksum = getAddress(newAddress);
+      setIsBundleMode(false);
       setTargetAddress(checksum);
     }
   }, []);
 
+  const toggleBundleMode = useCallback(() => {
+    setIsBundleMode((prev) => {
+      const next = !prev;
+      if (next && selectedBundleAddresses.length === 0) {
+        const initial = watchlist.slice(0, 10).map((w) => getAddress(w.address));
+        if (initial.length === 0 && isAddress(targetAddress)) {
+          setSelectedBundleAddresses([getAddress(targetAddress)]);
+        } else {
+          setSelectedBundleAddresses(initial);
+        }
+      }
+      return next;
+    });
+  }, [selectedBundleAddresses.length, watchlist, targetAddress]);
+
+  const toggleSelectBundleAddress = useCallback((addr: string) => {
+    if (!isAddress(addr)) return;
+    const checksum = getAddress(addr);
+    setSelectedBundleAddresses((prev) => {
+      const exists = prev.some((a) => a.toLowerCase() === checksum.toLowerCase());
+      if (exists) {
+        return prev.filter((a) => a.toLowerCase() !== checksum.toLowerCase());
+      } else {
+        if (prev.length >= 10) return prev; // max 10 wallets
+        return [...prev, checksum];
+      }
+    });
+  }, []);
+
+  const selectAllBundleAddresses = useCallback(() => {
+    const all = watchlist.slice(0, 10).map((w) => getAddress(w.address));
+    setSelectedBundleAddresses(all);
+  }, [watchlist]);
+
+  const clearBundleAddresses = useCallback(() => {
+    setSelectedBundleAddresses([]);
+  }, []);
+
   const refresh = useCallback(() => {
+    if (isBundleMode && selectedBundleAddresses.length > 0) {
+      return loadPortfolio(targetAddress, true, selectedBundleAddresses);
+    }
     return loadPortfolio(targetAddress, true);
-  }, [targetAddress, loadPortfolio]);
+  }, [targetAddress, isBundleMode, selectedBundleAddresses, loadPortfolio]);
+
+  // 5. Revoke Shield Actions
+  const revokeAllowance = useCallback(
+    async (tokenAddress: Address, spenderAddress: Address): Promise<boolean> => {
+      if (!provider || !account) {
+        throw new Error("Wallet not connected");
+      }
+      const key = `${tokenAddress.toLowerCase()}-${spenderAddress.toLowerCase()}`;
+      setRevokingSpender(key);
+      try {
+        const activeChainId = chainId ?? ETN_MAINNET.id;
+        const walletClient = getWalletClient(provider, account, activeChainId);
+        const hash = await walletClient.writeContract({
+          address: tokenAddress,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [spenderAddress, 0n],
+        });
+        const client = getReadClient(activeChainId);
+        if (client) {
+          await client.waitForTransactionReceipt({ hash });
+        }
+        if (summary) {
+          setSummary((prev) => {
+            if (!prev) return prev;
+            const updatedApprovals = prev.intelligence.approvals.filter(
+              (a) =>
+                !(
+                  a.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() &&
+                  a.spenderAddress.toLowerCase() === spenderAddress.toLowerCase()
+                )
+            );
+            return {
+              ...prev,
+              intelligence: {
+                ...prev.intelligence,
+                approvals: updatedApprovals,
+              },
+            };
+          });
+        }
+        return true;
+      } finally {
+        setRevokingSpender(null);
+      }
+    },
+    [provider, account, chainId, summary]
+  );
+
+  const batchRevokeAllowances = useCallback(
+    async (approvals: TokenApprovalItem[]): Promise<{ successful: number; failed: number }> => {
+      if (!provider || !account) {
+        throw new Error("Wallet not connected");
+      }
+      setBatchRevoking(true);
+      setRevokeProgress({ current: 0, total: approvals.length });
+      let successful = 0;
+      let failed = 0;
+      const revokedKeys = new Set<string>();
+
+      const activeChainId = chainId ?? ETN_MAINNET.id;
+      const walletClient = getWalletClient(provider, account, activeChainId);
+      const client = getReadClient(activeChainId);
+
+      try {
+        for (let i = 0; i < approvals.length; i++) {
+          const item = approvals[i];
+          setRevokeProgress({ current: i + 1, total: approvals.length });
+          try {
+            const hash = await walletClient.writeContract({
+              address: item.tokenAddress,
+              abi: erc20Abi,
+              functionName: "approve",
+              args: [item.spenderAddress, 0n],
+            });
+            if (client) {
+              await client.waitForTransactionReceipt({ hash });
+            }
+            successful++;
+            revokedKeys.add(`${item.tokenAddress.toLowerCase()}-${item.spenderAddress.toLowerCase()}`);
+          } catch (err) {
+            console.error(`Failed to revoke ${item.tokenSymbol} for ${item.spenderName}:`, err);
+            failed++;
+          }
+        }
+
+        if (summary && revokedKeys.size > 0) {
+          setSummary((prev) => {
+            if (!prev) return prev;
+            const updatedApprovals = prev.intelligence.approvals.filter(
+              (a) =>
+                !revokedKeys.has(`${a.tokenAddress.toLowerCase()}-${a.spenderAddress.toLowerCase()}`)
+            );
+            return {
+              ...prev,
+              intelligence: {
+                ...prev.intelligence,
+                approvals: updatedApprovals,
+              },
+            };
+          });
+        }
+
+        return { successful, failed };
+      } finally {
+        setBatchRevoking(false);
+        setRevokeProgress(null);
+      }
+    },
+    [provider, account, chainId, summary]
+  );
 
   const isWhaleMode = useMemo(() => {
+    if (isBundleMode) return false;
     if (!account) return true;
     return targetAddress.toLowerCase() !== account.toLowerCase();
-  }, [account, targetAddress]);
+  }, [isBundleMode, account, targetAddress]);
 
   return {
     targetAddress,
@@ -247,5 +447,16 @@ export function usePortfolio(initialAddress?: string) {
     account,
     chainId,
     isWhaleMode,
+    isBundleMode,
+    selectedBundleAddresses,
+    toggleBundleMode,
+    toggleSelectBundleAddress,
+    selectAllBundleAddresses,
+    clearBundleAddresses,
+    revokingSpender,
+    batchRevoking,
+    revokeProgress,
+    revokeAllowance,
+    batchRevokeAllowances,
   };
 }

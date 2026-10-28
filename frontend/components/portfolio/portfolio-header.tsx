@@ -1,10 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
-import { ArrowUpRight, Crown, Flame, Sparkles, TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  ArrowUpRight,
+  ChevronDown,
+  Crown,
+  Download,
+  FileSpreadsheet,
+  Flame,
+  Layers,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { exportPortfolioSnapshotCsv, exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
 import type { PortfolioSummary, Timeframe } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
 
@@ -21,6 +32,8 @@ export function PortfolioHeader({
   onTimeframeChange,
   loading,
 }: PortfolioHeaderProps) {
+  const [csvMenuOpen, setCsvMenuOpen] = useState(false);
+
   const chartData = useMemo(() => {
     if (!summary?.history) return [];
     if (timeframe === "24H") {
@@ -38,6 +51,18 @@ export function PortfolioHeader({
   const changePercent = summary?.change24hPercent ?? 0;
   const isPositive = changePercent >= 0;
 
+  const handleExportSnapshot = () => {
+    if (!summary) return;
+    exportPortfolioSnapshotCsv(summary);
+    setCsvMenuOpen(false);
+  };
+
+  const handleExportTaxLedger = () => {
+    if (!summary) return;
+    exportTaxLedgerCsv(summary, summary.intelligence?.recentTransactions ?? []);
+    setCsvMenuOpen(false);
+  };
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7 shadow-2xl backdrop-blur-xl">
       {/* Top cyan gradient highlight line */}
@@ -50,6 +75,14 @@ export function PortfolioHeader({
             <span className="text-[0.68rem] font-semibold uppercase tracking-wider text-slate-400">
               Total Net Worth
             </span>
+
+            {/* Bundle Mode Active Pill */}
+            {summary?.isBundle && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]">
+                <Layers className="h-3 w-3 text-amber-400" />
+                Bundle: {summary.bundledAddresses?.length ?? 1} Wallets Combined
+              </span>
+            )}
 
             {/* Pro / Premium Preview Badge */}
             {IS_PREMIUM_USER && (
@@ -95,23 +128,81 @@ export function PortfolioHeader({
           </p>
         </div>
 
-        {/* Right: Timeframe Switcher */}
-        <div className="flex items-center gap-1.5 self-start lg:self-center rounded-xl border border-slate-800 bg-slate-950/70 p-1">
-          {(["24H", "7D", "30D"] as const).map((tf) => (
+        {/* Right: Controls (Export CSV PRO + Timeframe Switcher) */}
+        <div className="flex flex-wrap items-center gap-3 self-start lg:self-center">
+          {/* CSV Export Dropdown */}
+          <div className="relative">
             <button
-              key={tf}
               type="button"
-              onClick={() => onTimeframeChange(tf)}
+              disabled={!summary}
+              onClick={() => setCsvMenuOpen((prev) => !prev)}
               className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-200",
-                timeframe === tf
-                  ? "bg-cyan-400 text-slate-950 shadow-glow"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
+                "inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs font-medium text-slate-300 transition duration-200 hover:border-slate-700 hover:text-white disabled:opacity-50"
               )}
             >
-              {tf}
+              <Download className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Export CSV</span>
+              {IS_PREMIUM_USER && (
+                <span className="rounded bg-cyan-400/20 border border-cyan-400/40 px-1 py-0.2 text-[0.55rem] font-bold uppercase tracking-wider text-cyan-300">
+                  PRO
+                </span>
+              )}
+              <ChevronDown className="h-3 w-3 text-slate-500" />
             </button>
-          ))}
+
+            {csvMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setCsvMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-xl border border-slate-800 bg-slate-950/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                  <button
+                    type="button"
+                    onClick={handleExportSnapshot}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-cyan-300 transition"
+                  >
+                    <FileSpreadsheet className="h-4 w-4 text-cyan-400" />
+                    <div>
+                      <div className="font-semibold">Portfolio Snapshot</div>
+                      <div className="text-[0.62rem] text-slate-500">Balances, values & PnL</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportTaxLedger}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-cyan-300 transition"
+                  >
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                    <div>
+                      <div className="font-semibold">Tax & Accounting Ledger</div>
+                      <div className="text-[0.62rem] text-slate-500">History, fees & receipts</div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Timeframe Switcher */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-950/70 p-1">
+            {(["24H", "7D", "30D"] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => onTimeframeChange(tf)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-200",
+                  timeframe === tf
+                    ? "bg-cyan-400 text-slate-950 shadow-glow"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
+                )}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
