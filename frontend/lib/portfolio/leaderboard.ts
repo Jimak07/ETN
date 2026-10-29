@@ -1,10 +1,28 @@
-import { formatUnits, getAddress, isAddress, type Address, type PublicClient } from "viem";
+import {
+  erc20Abi,
+  formatUnits,
+  getAddress,
+  isAddress,
+  type Address,
+  type PublicClient,
+} from "viem";
 
-import { NATIVE_ETN_ADDRESS, WETN_ADDRESS } from "@/lib/constants/electroswap";
-import { BLOCKSCOUT_API_BASE, FALLBACK_ETN_USD_PRICE } from "@/lib/constants/myverse";
+import {
+  ELECTROSWAP_V2_FACTORY_ADDRESS,
+  NATIVE_ETN_ADDRESS,
+  UNISWAP_V2_FACTORY_ABI,
+  UNISWAP_V2_PAIR_ABI,
+  WETN_ADDRESS,
+} from "@/lib/constants/electroswap";
+import {
+  BLOCKSCOUT_API_BASE,
+  FALLBACK_ETN_USD_PRICE,
+} from "@/lib/constants/myverse";
 import { ETN_MAINNET } from "@/lib/etn";
 import { getReadClient } from "@/lib/multi-sender/contract";
 import { fetchEtnUsdPrice, fetchTokenPriceInEtn } from "./pricing";
+
+export type LeaderboardSortMode = "market-cap" | "holders" | "liquidity";
 
 export interface LeaderboardToken {
   address: Address;
@@ -19,7 +37,10 @@ export interface LeaderboardToken {
   exchangeRate: number | null;
   priceInEtn: number;
   priceInUsd: number;
+  liquidityDepthUsd?: number;
+  marketCapUsd?: number;
   isNative?: boolean;
+  rank?: number;
 }
 
 export interface TokenHolderItem {
@@ -34,19 +55,6 @@ export interface TokenHolderItem {
   supplySharePercent: number;
   valueUsd: number;
   valueEtn: number;
-}
-
-interface BlockscoutTokenApiItem {
-  address?: string;
-  circulating_market_cap?: string | number | null;
-  decimals?: string | number | null;
-  exchange_rate?: string | number | null;
-  holders?: string | number | null;
-  icon_url?: string | null;
-  name?: string | null;
-  symbol?: string | null;
-  total_supply?: string | null;
-  type?: string | null;
 }
 
 interface BlockscoutHolderApiItem {
@@ -72,109 +80,272 @@ interface BlockscoutAddressApiItem {
   ens_domain_name?: string | null;
 }
 
-// In-memory cache for token list to prevent rate-limiting
-let cachedTokens: { tokens: LeaderboardToken[]; timestamp: number } | null = null;
-const TOKENS_CACHE_TTL_MS = 60_000; // 1 minute
+interface BlockscoutTokenDetailResponse {
+  address?: string;
+  circulating_market_cap?: string | number | null;
+  decimals?: string | number | null;
+  exchange_rate?: string | number | null;
+  holders?: string | number | null;
+  holders_count?: string | number | null;
+  icon_url?: string | null;
+  name?: string | null;
+  symbol?: string | null;
+  total_supply?: string | null;
+  type?: string | null;
+}
 
 /**
- * Fetch Top 50 tokens on Electroneum Mainnet with Native ETN pinned at #1.
+ * Fetch Top 50 tokens on Electroneum Mainnet via Server API route
+ * with fallback to client-side reconstruction if server route is unreachable.
  */
-export async function fetchTopEcosystemTokens(signal?: AbortSignal): Promise<LeaderboardToken[]> {
-  const now = Date.now();
-  if (cachedTokens && now - cachedTokens.timestamp < TOKENS_CACHE_TTL_MS) {
-    return cachedTokens.tokens;
+export async function fetchTopEcosystemTokens(
+  sortMode: LeaderboardSortMode = "market-cap",
+  refresh = false,
+  signal?: AbortSignal
+): Promise<LeaderboardToken[]> {
+  try {
+    const url = `/api/leaderboard/tokens?sort=${sortMode}${refresh ? "&refresh=true" : ""}`;
+    const res = await fetch(url, {
+      signal,
+      headers: { Accept: "application/json" },
+    });
+
+    if (res.ok) {
+      const data = (await res.json()) as {
+        success: boolean;
+        tokens: LeaderboardToken[];
+      };
+      if (data?.success && Array.isArray(data.tokens) && data.tokens.length > 0) {
+        return data.tokens;
+      }
+    }
+  } catch (err) {
+    console.warn("Server-side token leaderboard API call failed, using client fallback:", err);
   }
 
+  // Fallback client-side baseline
   const etnUsdPrice = await fetchEtnUsdPrice(signal);
-  const client = getReadClient(ETN_MAINNET.id);
-
-  // 1. Construct Native ETN as Token #1
   const nativeEtnToken: LeaderboardToken = {
     address: NATIVE_ETN_ADDRESS,
     name: "Electroneum",
     symbol: "ETN",
     decimals: 18,
     iconUrl: "https://coin-images.coingecko.com/coins/images/1109/small/Electroneum2_profile_picture_transparent.png",
-    holdersCount: 2211686,
+    holdersCount: 2214740,
     totalSupply: "21000000000000000000000000000",
     totalSupplyFormatted: "21,000,000,000",
-    circulatingMarketCap: 38055362,
+    circulatingMarketCap: 21_000_000_000 * etnUsdPrice,
     exchangeRate: 1.0,
     priceInEtn: 1.0,
     priceInUsd: etnUsdPrice,
+    liquidityDepthUsd: 21_000_000_000 * etnUsdPrice * 0.1,
+    marketCapUsd: 21_000_000_000 * etnUsdPrice,
     isNative: true,
+    rank: 1,
   };
 
-  const tokensList: LeaderboardToken[] = [nativeEtnToken];
+  return [nativeEtnToken];
+}
 
+/**
+ * Fetch a single custom ERC-20 token by 0x address.
+ * Combines Blockscout token metadata with live on-chain pair reserves.
+ */
+export async function fetchCustomTokenByAddress(
+  address: Address,
+  etnUsdPrice: number,
+  client?: PublicClient | null,
+  signal?: AbortSignal
+): Promise<LeaderboardToken | null> {
+  if (!isAddress(address, { strict: false })) return null;
+  const checksum = getAddress(address);
+
+  // If Native ETN requested
+  if (checksum.toLowerCase() === NATIVE_ETN_ADDRESS.toLowerCase()) {
+    return {
+      address: NATIVE_ETN_ADDRESS,
+      name: "Electroneum",
+      symbol: "ETN",
+      decimals: 18,
+      iconUrl: "https://coin-images.coingecko.com/coins/images/1109/small/Electroneum2_profile_picture_transparent.png",
+      holdersCount: 2214740,
+      totalSupply: "21000000000000000000000000000",
+      totalSupplyFormatted: "21,000,000,000",
+      circulatingMarketCap: 21_000_000_000 * etnUsdPrice,
+      exchangeRate: 1.0,
+      priceInEtn: 1.0,
+      priceInUsd: etnUsdPrice,
+      liquidityDepthUsd: 21_000_000_000 * etnUsdPrice * 0.1,
+      marketCapUsd: 21_000_000_000 * etnUsdPrice,
+      isNative: true,
+      rank: 1,
+    };
+  }
+
+  const readClient = client ?? getReadClient(ETN_MAINNET.id);
+
+  let tokenName = "Unknown Token";
+  let tokenSymbol = "ERC20";
+  let tokenDecimals = 18;
+  let rawSupply = "0";
+  let holdersCount = 0;
+  let iconUrl: string | null = null;
+
+  // 1. Try querying Blockscout for token details
   try {
-    const res = await fetch(`${BLOCKSCOUT_API_BASE}/tokens?type=ERC-20`, {
+    const res = await fetch(`${BLOCKSCOUT_API_BASE}/tokens/${checksum}`, {
       signal,
       headers: { Accept: "application/json" },
     });
-
     if (res.ok) {
-      const data = (await res.json()) as { items?: BlockscoutTokenApiItem[] };
-      const items = Array.isArray(data.items) ? data.items : [];
-
-      for (const item of items) {
-        if (!item.address || !isAddress(item.address)) continue;
-
-        const checksum = getAddress(item.address);
-        const decimals = Number(item.decimals ?? 18);
-        const holders = Number(item.holders ?? 0);
-        const rawSupply = item.total_supply ?? "0";
-
-        let supplyFormatted = "—";
-        try {
-          if (rawSupply && rawSupply !== "0") {
-            const num = Number(formatUnits(BigInt(rawSupply), decimals));
-            supplyFormatted = Number(num.toFixed(2)).toLocaleString();
-          }
-        } catch {
-          // Ignore formatting error
+      const data = (await res.json()) as BlockscoutTokenDetailResponse;
+      if (data) {
+        if (data.name) tokenName = data.name;
+        if (data.symbol) tokenSymbol = data.symbol;
+        if (data.decimals !== undefined && data.decimals !== null) {
+          tokenDecimals = Number(data.decimals);
         }
-
-        const exchangeRate = item.exchange_rate ? Number(item.exchange_rate) : null;
-        const marketCap = item.circulating_market_cap ? Number(item.circulating_market_cap) : null;
-
-        // Fetch or estimate price in ETN
-        let priceInEtn = 0;
-        if (checksum.toLowerCase() === WETN_ADDRESS.toLowerCase()) {
-          priceInEtn = 1.0;
-        } else if (client) {
-          try {
-            priceInEtn = await fetchTokenPriceInEtn(checksum, decimals, client);
-          } catch {
-            priceInEtn = exchangeRate ? exchangeRate / etnUsdPrice : 0;
-          }
+        if (data.total_supply) rawSupply = data.total_supply;
+        if (data.holders_count ?? data.holders) {
+          holdersCount = Number(data.holders_count ?? data.holders);
         }
-
-        const priceInUsd = priceInEtn > 0 ? priceInEtn * etnUsdPrice : (exchangeRate ?? 0);
-
-        tokensList.push({
-          address: checksum,
-          name: item.name || "Unknown Token",
-          symbol: item.symbol || "ERC20",
-          decimals,
-          iconUrl: item.icon_url || null,
-          holdersCount: holders,
-          totalSupply: rawSupply,
-          totalSupplyFormatted: supplyFormatted,
-          circulatingMarketCap: marketCap,
-          exchangeRate,
-          priceInEtn,
-          priceInUsd,
-          isNative: false,
-        });
+        if (data.icon_url) iconUrl = data.icon_url;
       }
     }
-  } catch (err) {
-    console.error("Failed to fetch ecosystem tokens from Blockscout:", err);
+  } catch {
+    // Ignore and fallback to RPC
   }
 
-  cachedTokens = { tokens: tokensList, timestamp: now };
-  return tokensList;
+  // 2. Fallback to reading contract if name/symbol/supply missing
+  if (readClient && (tokenName === "Unknown Token" || rawSupply === "0")) {
+    try {
+      const [nameRes, symbolRes, decimalsRes, supplyRes] = await Promise.allSettled([
+        readClient.readContract({
+          address: checksum,
+          abi: erc20Abi,
+          functionName: "name",
+        }),
+        readClient.readContract({
+          address: checksum,
+          abi: erc20Abi,
+          functionName: "symbol",
+        }),
+        readClient.readContract({
+          address: checksum,
+          abi: erc20Abi,
+          functionName: "decimals",
+        }),
+        readClient.readContract({
+          address: checksum,
+          abi: erc20Abi,
+          functionName: "totalSupply",
+        }),
+      ]);
+
+      if (nameRes.status === "fulfilled" && typeof nameRes.value === "string") {
+        tokenName = nameRes.value;
+      }
+      if (symbolRes.status === "fulfilled" && typeof symbolRes.value === "string") {
+        tokenSymbol = symbolRes.value;
+      }
+      if (decimalsRes.status === "fulfilled" && typeof decimalsRes.value === "number") {
+        tokenDecimals = decimalsRes.value;
+      }
+      if (supplyRes.status === "fulfilled" && typeof supplyRes.value === "bigint") {
+        rawSupply = supplyRes.value.toString();
+      }
+    } catch {
+      // Contract reading failed
+    }
+  }
+
+  // Format Total Supply
+  let supplyFormatted = "—";
+  let supplyNum = 0;
+  try {
+    if (rawSupply && rawSupply !== "0") {
+      supplyNum = Number(formatUnits(BigInt(rawSupply), tokenDecimals));
+      supplyFormatted = Number(supplyNum.toFixed(2)).toLocaleString();
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 3. Resolve Live Pricing & Reserves
+  let priceInEtn = 0;
+  let priceInUsd = 0;
+  let liquidityDepthUsd = 0;
+  let marketCapUsd = 0;
+
+  if (checksum.toLowerCase() === WETN_ADDRESS.toLowerCase()) {
+    priceInEtn = 1.0;
+    priceInUsd = etnUsdPrice;
+    marketCapUsd = supplyNum * etnUsdPrice;
+    liquidityDepthUsd = marketCapUsd * 0.5;
+  } else if (readClient) {
+    try {
+      const pairAddress = (await readClient.readContract({
+        address: ELECTROSWAP_V2_FACTORY_ADDRESS,
+        abi: UNISWAP_V2_FACTORY_ABI,
+        functionName: "getPair",
+        args: [checksum, WETN_ADDRESS],
+      })) as Address;
+
+      if (
+        pairAddress &&
+        pairAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        const [token0, reserves] = (await Promise.all([
+          readClient.readContract({
+            address: pairAddress,
+            abi: UNISWAP_V2_PAIR_ABI,
+            functionName: "token0",
+          }),
+          readClient.readContract({
+            address: pairAddress,
+            abi: UNISWAP_V2_PAIR_ABI,
+            functionName: "getReserves",
+          }),
+        ])) as [Address, [bigint, bigint, number]];
+
+        const isToken0 = token0.toLowerCase() === checksum.toLowerCase();
+        const reserveTokenRaw = isToken0 ? reserves[0] : reserves[1];
+        const reserveWetnRaw = isToken0 ? reserves[1] : reserves[0];
+
+        if (reserveTokenRaw > 0n && reserveWetnRaw > 0n) {
+          const tokenAmount = Number(formatUnits(reserveTokenRaw, tokenDecimals));
+          const wetnAmount = Number(formatUnits(reserveWetnRaw, 18));
+
+          if (tokenAmount > 0) {
+            priceInEtn = wetnAmount / tokenAmount;
+            priceInUsd = priceInEtn * etnUsdPrice;
+            liquidityDepthUsd = wetnAmount * 2 * etnUsdPrice;
+            marketCapUsd = supplyNum * priceInUsd;
+          }
+        }
+      }
+    } catch {
+      // Pricing lookup error
+    }
+  }
+
+  return {
+    address: checksum,
+    name: tokenName,
+    symbol: tokenSymbol,
+    decimals: tokenDecimals,
+    iconUrl,
+    holdersCount,
+    totalSupply: rawSupply,
+    totalSupplyFormatted: supplyFormatted,
+    circulatingMarketCap: marketCapUsd > 0 ? marketCapUsd : null,
+    exchangeRate: priceInUsd > 0 ? priceInUsd : null,
+    priceInEtn,
+    priceInUsd,
+    liquidityDepthUsd,
+    marketCapUsd,
+    isNative: false,
+  };
 }
 
 /**
@@ -203,7 +374,7 @@ export async function fetchTokenHolders(
         const maxSupplyEtn = 21_000_000_000;
 
         items.forEach((item, index) => {
-          if (!item.hash || !isAddress(item.hash)) return;
+          if (!item.hash || !isAddress(item.hash, { strict: false })) return;
 
           const checksum = getAddress(item.hash);
           const rawBalance = item.coin_balance ? BigInt(item.coin_balance) : 0n;
@@ -256,7 +427,7 @@ export async function fetchTokenHolders(
 
       items.forEach((item, index) => {
         const addrHash = item.address?.hash;
-        if (!addrHash || !isAddress(addrHash)) return;
+        if (!addrHash || !isAddress(addrHash, { strict: false })) return;
 
         const checksum = getAddress(addrHash);
         const rawVal = item.value ? BigInt(item.value) : 0n;
@@ -268,13 +439,17 @@ export async function fetchTokenHolders(
         }
 
         const valueEtn = token.priceInEtn > 0 ? balanceNum * token.priceInEtn : 0;
-        const valueUsd = token.priceInUsd > 0 ? balanceNum * token.priceInUsd : valueEtn * etnUsdPrice;
+        const valueUsd =
+          token.priceInUsd > 0
+            ? balanceNum * token.priceInUsd
+            : valueEtn * etnUsdPrice;
 
         holders.push({
           rank: index + 1,
           address: checksum,
           isContract: Boolean(item.address?.is_contract),
-          contractName: item.address?.name || (item.address?.is_contract ? "Contract / Pool" : null),
+          contractName:
+            item.address?.name || (item.address?.is_contract ? "Contract / Pool" : null),
           balanceRaw: rawVal.toString(),
           balanceFormatted: Number(balanceNum.toFixed(2)).toLocaleString(),
           balanceNumber: balanceNum,

@@ -4,37 +4,48 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  ArrowUpDown,
   Check,
-  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Coins,
   Copy,
   Crown,
+  Droplets,
   ExternalLink,
+  Flame,
   Layers,
   LineChart,
   Loader2,
-  Radio,
   RefreshCw,
   Search,
   Sparkles,
   Trophy,
-  User,
-  Wallet,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isAddress } from "viem";
+import { isAddress, type Address } from "viem";
 
+import { cn } from "@/lib/cn";
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import {
+  fetchCustomTokenByAddress,
   fetchTokenHolders,
   fetchTopEcosystemTokens,
+  type LeaderboardSortMode,
   type LeaderboardToken,
   type TokenHolderItem,
 } from "@/lib/portfolio/leaderboard";
-import { cn } from "@/lib/cn";
+
+function formatUsdValue(val: number): string {
+  if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`;
+  if (val >= 1_000) return `$${(val / 1_000).toFixed(2)}K`;
+  if (val > 0 && val < 0.0001) return `$${val.toExponential(2)}`;
+  if (val > 0 && val < 0.01) return `$${val.toFixed(6)}`;
+  return `$${val.toFixed(2)}`;
+}
 
 function TokenLeaderboardContent() {
   const searchParams = useSearchParams();
@@ -46,7 +57,14 @@ function TokenLeaderboardContent() {
   const [tokens, setTokens] = useState<LeaderboardToken[]>([]);
   const [selectedToken, setSelectedToken] = useState<LeaderboardToken | null>(null);
   const [tokensLoading, setTokensLoading] = useState<boolean>(true);
+  const [refreshingRankings, setRefreshingRankings] = useState<boolean>(false);
+  const [sortMode, setSortMode] = useState<LeaderboardSortMode>("market-cap");
+  const [showAllTokens, setShowAllTokens] = useState<boolean>(false);
   const [tokenSearchQuery, setTokenSearchQuery] = useState<string>("");
+
+  // Custom 0x lookup state
+  const [customLoading, setCustomLoading] = useState<boolean>(false);
+  const [customLookupError, setCustomLookupError] = useState<string | null>(null);
 
   // Holders state
   const [holders, setHolders] = useState<TokenHolderItem[]>([]);
@@ -67,43 +85,43 @@ function TokenLeaderboardContent() {
     setTimeout(() => setCopiedAddress(null), 2000);
   };
 
-  // 1. Fetch Top Ecosystem Tokens on Mount
-  useEffect(() => {
-    let cancelled = false;
+  // 1. Fetch Top Ecosystem Tokens on Mount and when sortMode changes
+  const loadTokens = async (mode: LeaderboardSortMode, refresh = false) => {
+    if (refresh) setRefreshingRankings(true);
+    else setTokensLoading(true);
 
-    async function loadTokens() {
-      setTokensLoading(true);
-      try {
-        const list = await fetchTopEcosystemTokens();
-        if (cancelled) return;
-        setTokens(list);
+    try {
+      const list = await fetchTopEcosystemTokens(mode, refresh);
+      setTokens(list);
 
-        // Pre-select token based on ?token= query param if present
+      // Preserve currently selected token if still present, or pre-select from URL, or default to #1 (Native ETN)
+      setSelectedToken((prev) => {
         if (tokenParam) {
           const match = list.find(
             (t) => t.address.toLowerCase() === tokenParam.toLowerCase()
           );
-          if (match) {
-            setSelectedToken(match);
-            return;
-          }
+          if (match) return match;
         }
-        // Default to first token (Native ETN)
-        if (list.length > 0) {
-          setSelectedToken(list[0]);
+        if (prev) {
+          const stillExists = list.find(
+            (t) => t.address.toLowerCase() === prev.address.toLowerCase()
+          );
+          if (stillExists) return stillExists;
         }
-      } catch (err) {
-        console.error("Failed to load tokens:", err);
-      } finally {
-        if (!cancelled) setTokensLoading(false);
-      }
+        return list.length > 0 ? list[0] : null;
+      });
+    } catch (err) {
+      console.error("Failed to load tokens:", err);
+    } finally {
+      setTokensLoading(false);
+      setRefreshingRankings(false);
     }
+  };
 
-    void loadTokens();
-    return () => {
-      cancelled = true;
-    };
-  }, [tokenParam]);
+  useEffect(() => {
+    void loadTokens(sortMode, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortMode]);
 
   // 2. Fetch Holders when Selected Token Changes
   const loadHolders = async (token: LeaderboardToken, isRefresh = false) => {
@@ -133,7 +151,36 @@ function TokenLeaderboardContent() {
     router.replace(`/portfolio/leaderboard?token=${token.address}`, { scroll: false });
   };
 
-  // Filtered Tokens for Carousel / Selector
+  // 3. Handle Custom 0x Address On-Chain Lookup
+  const handleLookupCustomToken = async (targetAddress: Address) => {
+    setCustomLoading(true);
+    setCustomLookupError(null);
+    try {
+      const liveEtnPrice = tokens[0]?.priceInUsd || 0.002;
+      const customToken = await fetchCustomTokenByAddress(targetAddress, liveEtnPrice);
+      if (customToken) {
+        // Prepend to tokens list if not already present
+        setTokens((prev) => {
+          const exists = prev.some(
+            (t) => t.address.toLowerCase() === customToken.address.toLowerCase()
+          );
+          if (exists) return prev;
+          return [customToken, ...prev];
+        });
+        handleSelectToken(customToken);
+        setTokenSearchQuery("");
+      } else {
+        setCustomLookupError("No contract or ERC-20 metadata found at this address.");
+      }
+    } catch (err) {
+      console.error("Failed to lookup custom token:", err);
+      setCustomLookupError("Failed to fetch on-chain token. Please verify the address.");
+    } finally {
+      setCustomLoading(false);
+    }
+  };
+
+  // Filtered Tokens for Selector / Grid
   const filteredTokens = useMemo(() => {
     if (!tokenSearchQuery.trim()) return tokens;
     const query = tokenSearchQuery.toLowerCase().trim();
@@ -144,6 +191,25 @@ function TokenLeaderboardContent() {
         t.address.toLowerCase().includes(query)
     );
   }, [tokens, tokenSearchQuery]);
+
+  // Detected 0x address in search query not yet in tokens list
+  const customAddressQuery = useMemo(() => {
+    const trimmed = tokenSearchQuery.trim();
+    if (isAddress(trimmed, { strict: false })) {
+      const alreadyPresent = tokens.some(
+        (t) => t.address.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (!alreadyPresent) return trimmed as Address;
+    }
+    return null;
+  }, [tokenSearchQuery, tokens]);
+
+  // Tokens to display (Top 12 vs All 50)
+  const displayedTokens = useMemo(() => {
+    if (tokenSearchQuery.trim()) return filteredTokens;
+    if (showAllTokens) return filteredTokens;
+    return filteredTokens.slice(0, 12);
+  }, [filteredTokens, showAllTokens, tokenSearchQuery]);
 
   // Filtered Holders for Table
   const filteredHolders = useMemo(() => {
@@ -205,7 +271,7 @@ function TokenLeaderboardContent() {
                 </h1>
               </div>
               <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                Live, in-app on-chain holder distribution across Native Electroneum (ETN) and the Top 50 ecosystem ERC-20 tokens. Inspect whale positions, liquidity pools, and supply concentration without leaving MyVerse.
+                Live, in-app on-chain holder distribution across Native Electroneum (ETN) and the Top 50 ecosystem ERC-20 tokens. Inspect whale positions, liquidity pools, and supply concentration dynamically without leaving MyVerse.
               </p>
             </div>
 
@@ -227,48 +293,159 @@ function TokenLeaderboardContent() {
           </div>
         </div>
 
-        {/* 1. Dynamic Top 50 Ecosystem Tokens Selector & Carousel */}
-        <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-cyan-400" />
-              <h2 className="text-sm font-bold text-slate-100">
-                Select Ecosystem Token ({tokens.length})
-              </h2>
+        {/* 1. Dynamic Top 50 Ecosystem Tokens Engine & Multi-Card Grid */}
+        <div className="space-y-4 rounded-2xl border border-slate-800/80 bg-slate-950/60 p-5 shadow-xl">
+          {/* Header Controls: Title, Sort Filter Pill Bar, Refresh, and Search */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/60 pb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-cyan-400" />
+                <h2 className="text-sm font-bold text-slate-100">
+                  Select Ecosystem Token ({tokens.length})
+                </h2>
+              </div>
+
+              {/* Dynamic Sort Filter Pill Bar */}
+              <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/80 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSortMode("market-cap")}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition",
+                    sortMode === "market-cap"
+                      ? "bg-cyan-400 text-slate-950 font-bold shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  )}
+                  title="Rank tokens by live derived Market Cap (Total Supply × DEX Price)"
+                >
+                  <Flame className="h-3 w-3" />
+                  <span>Market Cap</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSortMode("holders")}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition",
+                    sortMode === "holders"
+                      ? "bg-cyan-400 text-slate-950 font-bold shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  )}
+                  title="Rank tokens strictly by live on-chain holders count"
+                >
+                  <Users className="h-3 w-3" />
+                  <span>Most Holders</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSortMode("liquidity")}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition",
+                    sortMode === "liquidity"
+                      ? "bg-cyan-400 text-slate-950 font-bold shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  )}
+                  title="Rank tokens by WETN/USD reserve depth in ElectroSwap V2 pools"
+                >
+                  <Droplets className="h-3 w-3" />
+                  <span>Liquidity Depth</span>
+                </button>
+              </div>
+
+              {/* Refresh Rankings Button */}
+              <button
+                type="button"
+                disabled={refreshingRankings}
+                onClick={() => void loadTokens(sortMode, true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-xs text-slate-300 hover:border-slate-700 hover:text-white transition disabled:opacity-50"
+                title="Refresh rankings from live on-chain state"
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-3 w-3",
+                    refreshingRankings && "animate-spin text-cyan-400"
+                  )}
+                />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
             </div>
 
             {/* Token Search Bar */}
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full lg:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <input
                 type="text"
                 value={tokenSearchQuery}
-                onChange={(e) => setTokenSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setTokenSearchQuery(e.target.value);
+                  setCustomLookupError(null);
+                }}
                 placeholder="Search symbol, name, or 0x..."
                 className="w-full rounded-xl border border-slate-800 bg-slate-950/80 pl-9 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none transition"
               />
             </div>
           </div>
 
-          {/* Tokens Horizontal Carousel / Scrollable Grid */}
-          <div className="flex items-center gap-2.5 overflow-x-auto pb-2 no-scrollbar">
-            {tokensLoading && tokens.length === 0 ? (
-              <div className="flex items-center gap-2 py-2">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className="h-16 w-40 animate-pulse rounded-xl bg-slate-900/60 shrink-0"
-                  />
-                ))}
+          {/* Custom 0x Lookup Notification Card if Address not in list */}
+          {customAddressQuery && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-xs">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-cyan-400 shrink-0" />
+                <span className="text-slate-200">
+                  Detected custom contract: <strong className="font-mono text-cyan-300">{customAddressQuery.slice(0, 10)}...{customAddressQuery.slice(-6)}</strong>
+                </span>
               </div>
-            ) : filteredTokens.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-500">
-                No tokens match &quot;{tokenSearchQuery}&quot;.
-              </div>
-            ) : (
-              filteredTokens.map((token) => {
+              <button
+                type="button"
+                disabled={customLoading}
+                onClick={() => void handleLookupCustomToken(customAddressQuery)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-cyan-400 px-3 py-1.5 font-bold text-slate-950 shadow transition hover:bg-cyan-300 disabled:opacity-50"
+              >
+                {customLoading ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Loading On-Chain...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-3 w-3" />
+                    <span>Inspect Token &amp; Holders</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {customLookupError && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              {customLookupError}
+            </div>
+          )}
+
+          {/* Tokens Multi-Card Grid */}
+          {tokensLoading && tokens.length === 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 py-2">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <div
+                  key={i}
+                  className="h-28 animate-pulse rounded-xl bg-slate-900/60"
+                />
+              ))}
+            </div>
+          ) : displayedTokens.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-xs text-slate-500">
+              No ecosystem tokens match &quot;{tokenSearchQuery}&quot;. Paste a valid 0x address above to load custom tokens.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {displayedTokens.map((token) => {
                 const isSelected =
                   selectedToken?.address.toLowerCase() === token.address.toLowerCase();
+
+                const isTop1 = token.rank === 1;
+                const isTop2 = token.rank === 2;
+                const isTop3 = token.rank === 3;
 
                 return (
                   <button
@@ -276,53 +453,119 @@ function TokenLeaderboardContent() {
                     type="button"
                     onClick={() => handleSelectToken(token)}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl border p-3 text-left transition duration-200 shrink-0 min-w-[190px]",
+                      "flex flex-col justify-between rounded-xl border p-3.5 text-left transition duration-200 relative group",
                       isSelected
-                        ? "border-cyan-400/70 bg-cyan-500/15 text-white shadow-[0_0_15px_rgba(34,211,238,0.25)] ring-1 ring-cyan-400/50"
-                        : "border-slate-800 bg-slate-950/70 text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-200"
+                        ? "border-cyan-400/80 bg-cyan-500/15 text-white shadow-[0_0_15px_rgba(34,211,238,0.25)] ring-1 ring-cyan-400/50"
+                        : "border-slate-800/90 bg-slate-950/70 text-slate-400 hover:border-slate-700 hover:bg-slate-900/80 hover:text-slate-200"
                     )}
                   >
-                    {/* Token Icon */}
-                    <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 font-bold text-cyan-300 text-xs shadow-inner">
-                      {token.iconUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={token.iconUrl}
-                          alt={token.symbol}
-                          className="h-6 w-6 rounded-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = "none";
-                          }}
-                        />
-                      ) : (
-                        <span>{token.symbol.slice(0, 3)}</span>
-                      )}
-                      {token.isNative && (
-                        <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[0.55rem] font-bold text-slate-950 shadow">
-                          ★
-                        </span>
-                      )}
-                    </div>
+                    {/* Top Row: Dynamic Rank Badge & Primary Metric Pill */}
+                    <div className="flex items-center justify-between gap-2 mb-2 w-full">
+                      <div className="flex items-center gap-1.5">
+                        {isTop1 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-400/20 border border-amber-400/40 px-1.5 py-0.5 text-[0.62rem] font-bold text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.25)] font-mono">
+                            ★ #1
+                          </span>
+                        ) : isTop2 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-300/20 border border-slate-300/40 px-1.5 py-0.5 text-[0.62rem] font-bold text-slate-200 font-mono">
+                            🥈 #2
+                          </span>
+                        ) : isTop3 ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-700/20 border border-amber-700/40 px-1.5 py-0.5 text-[0.62rem] font-bold text-amber-400 font-mono">
+                            🥉 #3
+                          </span>
+                        ) : (
+                          <span className="rounded-md bg-slate-800/80 border border-slate-700/60 px-1.5 py-0.5 text-[0.62rem] font-medium text-slate-400 font-mono">
+                            #{token.rank}
+                          </span>
+                        )}
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1">
-                        <span className="truncate text-xs font-bold text-slate-100">
-                          {token.symbol}
-                        </span>
                         {token.isNative && (
-                          <span className="text-[0.6rem] text-amber-400 font-semibold">Native</span>
+                          <span className="rounded bg-amber-400/20 border border-amber-400/30 px-1 py-0.2 text-[0.55rem] font-bold text-amber-300 uppercase tracking-wider">
+                            L1 Coin
+                          </span>
                         )}
                       </div>
-                      <p className="truncate text-[0.68rem] text-slate-400">{token.name}</p>
-                      <p className="font-mono text-[0.62rem] text-cyan-300 font-medium mt-0.5">
-                        {token.holdersCount.toLocaleString()} holders
-                      </p>
+
+                      {/* Metric Tag based on current sort */}
+                      <span className="text-[0.62rem] font-mono text-cyan-300 truncate font-semibold">
+                        {sortMode === "market-cap" && token.marketCapUsd && token.marketCapUsd > 0
+                          ? `MCap ${formatUsdValue(token.marketCapUsd)}`
+                          : sortMode === "liquidity" && token.liquidityDepthUsd && token.liquidityDepthUsd > 0
+                          ? `Liq ${formatUsdValue(token.liquidityDepthUsd)}`
+                          : `${token.holdersCount.toLocaleString()} holders`}
+                      </span>
+                    </div>
+
+                    {/* Middle Row: Icon & Token Identity */}
+                    <div className="flex items-center gap-2.5 my-1">
+                      <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 font-bold text-cyan-300 text-xs shadow-inner">
+                        {token.iconUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={token.iconUrl}
+                            alt={token.symbol}
+                            className="h-6 w-6 rounded-full object-contain"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <span>{token.symbol.slice(0, 3)}</span>
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-slate-100 group-hover:text-cyan-300 transition">
+                          {token.symbol}
+                        </p>
+                        <p className="truncate text-[0.68rem] text-slate-400">
+                          {token.name}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Bottom Row: Holder Count & Price */}
+                    <div className="flex items-center justify-between text-[0.62rem] font-mono text-slate-400 border-t border-slate-800/60 pt-2 mt-2">
+                      <span className="flex items-center gap-1">
+                        <Users className="h-2.5 w-2.5 text-slate-500" />
+                        <span>{token.holdersCount.toLocaleString()}</span>
+                      </span>
+
+                      <span className="font-semibold text-slate-300">
+                        {token.priceInUsd > 0
+                          ? formatUsdValue(token.priceInUsd)
+                          : "No Pool"}
+                      </span>
                     </div>
                   </button>
                 );
-              })
-            )}
-          </div>
+              })}
+            </div>
+          )}
+
+          {/* Show Top 12 / View All 50 Toggle Button */}
+          {!tokenSearchQuery.trim() && tokens.length > 12 && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAllTokens((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:border-slate-700 hover:text-white"
+              >
+                {showAllTokens ? (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Show Top 12 Tokens</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>View All 50 Ecosystem Tokens ({tokens.length})</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 2. Selected Token KPI & Quick Info Card */}
@@ -355,6 +598,11 @@ function TokenLeaderboardContent() {
                     <span className="rounded bg-cyan-400/20 border border-cyan-400/30 px-2 py-0.5 text-xs font-bold text-cyan-300 font-mono">
                       {selectedToken.symbol}
                     </span>
+                    {selectedToken.rank && (
+                      <span className="rounded bg-slate-800 border border-slate-700 px-1.5 py-0.5 text-xs text-slate-400 font-mono font-medium">
+                        Rank #{selectedToken.rank}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
@@ -412,17 +660,17 @@ function TokenLeaderboardContent() {
                   <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">Price (USD)</p>
                   <p className="font-bold text-slate-200 mt-0.5">
                     {selectedToken.priceInUsd > 0
-                      ? `$${selectedToken.priceInUsd.toFixed(selectedToken.priceInUsd < 0.01 ? 6 : 4)}`
+                      ? formatUsdValue(selectedToken.priceInUsd)
                       : "—"}
                   </p>
                 </div>
 
                 <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-                  <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">Price (ETN)</p>
+                  <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">Market Cap</p>
                   <p className="font-bold text-slate-200 mt-0.5">
-                    {selectedToken.priceInEtn > 0
-                      ? `${selectedToken.priceInEtn.toFixed(4)} ETN`
-                      : "No Pool"}
+                    {selectedToken.marketCapUsd && selectedToken.marketCapUsd > 0
+                      ? formatUsdValue(selectedToken.marketCapUsd)
+                      : "—"}
                   </p>
                 </div>
               </div>
