@@ -15,21 +15,42 @@ import {
 } from "@/lib/portfolio/watchlist";
 import { getEthereumProvider, type Eip1193Provider } from "@/lib/wallet";
 
-export function usePortfolio(initialAddress?: string) {
+export interface UsePortfolioOptions {
+  initialAddress?: string;
+  mode?: "portfolio" | "explorer";
+}
+
+export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOptions) {
+  const options: UsePortfolioOptions =
+    typeof initialAddressOrOptions === "string"
+      ? { initialAddress: initialAddressOrOptions }
+      : initialAddressOrOptions ?? {};
+
+  const { initialAddress, mode = "portfolio" } = options;
+
   const [provider, setProvider] = useState<Eip1193Provider | null>(null);
   const [account, setAccount] = useState<Address | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
 
-  // Active address being inspected
+  // Active address being inspected:
+  // In personal ("portfolio") mode, STRICTLY initialize as empty string unless a valid initialAddress was provided.
+  // NEVER fall back to DEFAULT_EXPLORER_ADDRESS in personal mode!
   const [targetAddress, setTargetAddress] = useState<string>(() => {
     if (initialAddress && isAddress(initialAddress)) {
       return getAddress(initialAddress);
     }
-    return DEFAULT_EXPLORER_ADDRESS;
+    if (mode === "explorer") {
+      return DEFAULT_EXPLORER_ADDRESS;
+    }
+    return "";
   });
 
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (initialAddress && isAddress(initialAddress)) return true;
+    if (mode === "explorer") return true;
+    return false;
+  });
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +59,7 @@ export function usePortfolio(initialAddress?: string) {
   // Hide dust toggle
   const [hideDust, setHideDust] = useState<boolean>(true);
 
-  // Watchlist state
+  // Watchlist state (custom user-added only)
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
 
   // Bundle Mode state (PRO: combine up to 10 wallets)
@@ -49,9 +70,6 @@ export function usePortfolio(initialAddress?: string) {
   const [revokingSpender, setRevokingSpender] = useState<string | null>(null);
   const [batchRevoking, setBatchRevoking] = useState<boolean>(false);
   const [revokeProgress, setRevokeProgress] = useState<{ current: number; total: number } | null>(null);
-
-  // Track initial mount to auto-switch to connected wallet if user connects
-  const initialWalletSyncedRef = useRef(false);
 
   // 1. Initialise wallet provider & account synchronization
   useEffect(() => {
@@ -71,9 +89,7 @@ export function usePortfolio(initialAddress?: string) {
         if (first && isAddress(first)) {
           const checksum = getAddress(first);
           setAccount(checksum);
-          // If no custom initialAddress was explicitly passed and this is initial load, switch to connected wallet
-          if (!initialAddress && !initialWalletSyncedRef.current) {
-            initialWalletSyncedRef.current = true;
+          if (mode === "portfolio" || !initialAddress) {
             setTargetAddress(checksum);
           }
         }
@@ -91,8 +107,15 @@ export function usePortfolio(initialAddress?: string) {
       const next = Array.isArray(args[0]) ? args[0] : [];
       const first = next[0] && typeof next[0] === "string" && isAddress(next[0]) ? getAddress(next[0]) : null;
       setAccount(first);
-      if (first && !initialAddress) {
-        setTargetAddress(first);
+      if (first) {
+        if (mode === "portfolio" || !initialAddress) {
+          setTargetAddress(first);
+        }
+      } else {
+        if (mode === "portfolio") {
+          setTargetAddress("");
+          setSummary(null);
+        }
       }
     };
 
@@ -115,7 +138,28 @@ export function usePortfolio(initialAddress?: string) {
       emitter.removeListener?.("accountsChanged", onAccountsChanged);
       emitter.removeListener?.("chainChanged", onChainChanged);
     };
-  }, [initialAddress]);
+  }, [initialAddress, mode]);
+
+  // Sync mode changes to isolate Personal vs Explorer
+  useEffect(() => {
+    if (mode === "portfolio") {
+      if (account) {
+        setTargetAddress(account);
+      } else {
+        setTargetAddress("");
+        setSummary(null);
+        setLoading(false);
+      }
+    } else if (mode === "explorer") {
+      if (!targetAddress || !isAddress(targetAddress)) {
+        setTargetAddress(
+          initialAddress && isAddress(initialAddress)
+            ? getAddress(initialAddress)
+            : DEFAULT_EXPLORER_ADDRESS
+        );
+      }
+    }
+  }, [mode, account, initialAddress]);
 
   // 2. Load preferences & watchlist from localStorage
   useEffect(() => {
@@ -160,6 +204,7 @@ export function usePortfolio(initialAddress?: string) {
   // 3. Fetch Portfolio Data (Single or Bundle Mode)
   const loadPortfolio = useCallback(
     async (address: string, isRefresh = false, bundleAddrs?: Address[]) => {
+      // If bundle mode is active with valid addresses
       if (bundleAddrs && bundleAddrs.length > 0) {
         if (isRefresh) {
           setRefreshing(true);
@@ -189,9 +234,10 @@ export function usePortfolio(initialAddress?: string) {
         return;
       }
 
-      if (!isAddress(address)) {
-        setError(`"${address}" is not a valid 0x address.`);
+      // If address is empty or invalid, do not attempt to fetch
+      if (!address || !isAddress(address)) {
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -231,6 +277,8 @@ export function usePortfolio(initialAddress?: string) {
       }
     } else if (targetAddress && isAddress(targetAddress)) {
       void loadPortfolio(targetAddress, false);
+    } else {
+      setLoading(false);
     }
   }, [targetAddress, isBundleMode, selectedBundleAddresses, loadPortfolio]);
 
@@ -247,7 +295,6 @@ export function usePortfolio(initialAddress?: string) {
       if (isWatchlisted) {
         const updated = deleteFromWatchlist(targetAddress);
         setWatchlist(updated);
-        // Also remove from selected bundle if present
         setSelectedBundleAddresses((prev) =>
           prev.filter((a) => a.toLowerCase() !== targetAddress.toLowerCase())
         );
@@ -264,23 +311,37 @@ export function usePortfolio(initialAddress?: string) {
       const checksum = getAddress(newAddress);
       setIsBundleMode(false);
       setTargetAddress(checksum);
+    } else if (newAddress === "") {
+      setIsBundleMode(false);
+      setTargetAddress("");
+      setSummary(null);
     }
+  }, []);
+
+  const clearPortfolio = useCallback(() => {
+    setSummary(null);
+    setError(null);
+    setIsBundleMode(false);
+    setSelectedBundleAddresses([]);
   }, []);
 
   const toggleBundleMode = useCallback(() => {
     setIsBundleMode((prev) => {
       const next = !prev;
       if (next && selectedBundleAddresses.length === 0) {
-        const initial = watchlist.slice(0, 10).map((w) => getAddress(w.address));
-        if (initial.length === 0 && isAddress(targetAddress)) {
+        // In personal mode, only bundle custom watchlist items (or the connected account itself)
+        const customOnly = watchlist.slice(0, 10).map((w) => getAddress(w.address));
+        if (customOnly.length === 0 && account) {
+          setSelectedBundleAddresses([account]);
+        } else if (customOnly.length > 0) {
+          setSelectedBundleAddresses(customOnly);
+        } else if (isAddress(targetAddress)) {
           setSelectedBundleAddresses([getAddress(targetAddress)]);
-        } else {
-          setSelectedBundleAddresses(initial);
         }
       }
       return next;
     });
-  }, [selectedBundleAddresses.length, watchlist, targetAddress]);
+  }, [selectedBundleAddresses.length, watchlist, account, targetAddress]);
 
   const toggleSelectBundleAddress = useCallback((addr: string) => {
     if (!isAddress(addr)) return;
@@ -298,8 +359,12 @@ export function usePortfolio(initialAddress?: string) {
 
   const selectAllBundleAddresses = useCallback(() => {
     const all = watchlist.slice(0, 10).map((w) => getAddress(w.address));
-    setSelectedBundleAddresses(all);
-  }, [watchlist]);
+    if (all.length === 0 && isAddress(targetAddress)) {
+      setSelectedBundleAddresses([getAddress(targetAddress)]);
+    } else {
+      setSelectedBundleAddresses(all);
+    }
+  }, [watchlist, targetAddress]);
 
   const clearBundleAddresses = useCallback(() => {
     setSelectedBundleAddresses([]);
@@ -309,7 +374,9 @@ export function usePortfolio(initialAddress?: string) {
     if (isBundleMode && selectedBundleAddresses.length > 0) {
       return loadPortfolio(targetAddress, true, selectedBundleAddresses);
     }
-    return loadPortfolio(targetAddress, true);
+    if (targetAddress && isAddress(targetAddress)) {
+      return loadPortfolio(targetAddress, true);
+    }
   }, [targetAddress, isBundleMode, selectedBundleAddresses, loadPortfolio]);
 
   // 5. Revoke Shield Actions
@@ -426,6 +493,7 @@ export function usePortfolio(initialAddress?: string) {
   const isWhaleMode = useMemo(() => {
     if (isBundleMode) return false;
     if (!account) return true;
+    if (!targetAddress) return false;
     return targetAddress.toLowerCase() !== account.toLowerCase();
   }, [isBundleMode, account, targetAddress]);
 
@@ -462,6 +530,7 @@ export function usePortfolio(initialAddress?: string) {
     isWatchlisted,
     toggleWatchlist,
     selectAddress,
+    clearPortfolio,
     refresh,
     account,
     chainId,

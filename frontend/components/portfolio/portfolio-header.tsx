@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
+  Copy,
   Crown,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   Flame,
   Layers,
@@ -13,8 +16,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { isAddress } from "viem";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { ETN_EXPLORER_URL } from "@/lib/etn";
 import { exportPortfolioSnapshotCsv, exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
 import type { PortfolioSummary, Timeframe } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
@@ -24,6 +29,8 @@ interface PortfolioHeaderProps {
   timeframe: Timeframe;
   onTimeframeChange: (tf: Timeframe) => void;
   loading: boolean;
+  activeAddress?: string | null;
+  isMyPortfolio?: boolean;
 }
 
 export function PortfolioHeader({
@@ -31,8 +38,17 @@ export function PortfolioHeader({
   timeframe,
   onTimeframeChange,
   loading,
+  activeAddress,
+  isMyPortfolio = false,
 }: PortfolioHeaderProps) {
   const [csvMenuOpen, setCsvMenuOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyAddress = (addr: string) => {
+    void navigator.clipboard.writeText(addr);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const chartData = useMemo(() => {
     if (!summary?.history) return [];
@@ -64,9 +80,51 @@ export function PortfolioHeader({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7 shadow-2xl backdrop-blur-xl">
+    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7 shadow-2xl backdrop-blur-xl space-y-4">
       {/* Top cyan gradient highlight line */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent pointer-events-none" />
+
+      {/* Connected Wallet Address Verification Pill (Requirement 4) */}
+      {isMyPortfolio && activeAddress && isAddress(activeAddress) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/25 px-3 py-1.5 text-xs shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+            </span>
+            <span className="font-semibold text-emerald-400 text-[0.68rem] uppercase tracking-wider">
+              Connected Wallet
+            </span>
+          </div>
+
+          <span className="font-mono text-xs font-bold text-slate-100">
+            {activeAddress}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => handleCopyAddress(activeAddress)}
+            title="Copy wallet address"
+            className="p-1 rounded text-slate-400 hover:text-emerald-300 transition"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </button>
+
+          <a
+            href={`${ETN_EXPLORER_URL}/address/${activeAddress}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Verify on Blockscout Explorer"
+            className="p-1 rounded text-slate-400 hover:text-cyan-300 transition"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
+      )}
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         {/* Left: Net Worth Balances & Badges */}

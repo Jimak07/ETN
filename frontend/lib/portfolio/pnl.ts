@@ -65,6 +65,16 @@ export async function calculateTokenPnL(
   }
 
   const tokensWithPnl: TokenHolding[] = tokens.map((token, index) => {
+    if (token.balanceNumber <= 0) {
+      return {
+        ...token,
+        costBasisEtn: 0,
+        costBasisUsd: 0,
+        unrealizedPnLUsd: 0,
+        unrealizedPnLPercent: 0,
+      };
+    }
+
     // For Native ETN, estimate a steady long-term cost basis
     if (token.isNative) {
       const estimatedCostBasisUsd = token.priceInUsd * 0.94; // ~6% unrealized gain baseline

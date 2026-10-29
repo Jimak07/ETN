@@ -131,7 +131,7 @@ export async function fetchPortfolioSummary(
     fetch(`${BLOCKSCOUT_API_BASE}/addresses/${address}/tokens?type=ERC-20`, { signal, headers: { Accept: "application/json" } })
       .then((r) => (r.ok ? (r.json() as Promise<{ items?: BlockscoutTokenItem[] }>) : { items: [] }))
       .catch(() => ({ items: [] })),
-    fetch(`${BLOCKSCOUT_API_BASE}/addresses/${address}/nft`, { signal, headers: { Accept: "application/json" } })
+    fetch(`${BLOCKSCOUT_API_BASE}/addresses/${address}/nft?type=ERC-721,ERC-1155`, { signal, headers: { Accept: "application/json" } })
       .then((r) => (r.ok ? (r.json() as Promise<{ items?: BlockscoutNftItem[] }>) : { items: [] }))
       .catch(() => ({ items: [] })),
     fetch(`${BLOCKSCOUT_API_BASE}/addresses/${address}/counters`, { signal, headers: { Accept: "application/json" } })
@@ -170,8 +170,9 @@ export async function fetchPortfolioSummary(
       ? tokensResult.value.items
       : [];
 
-  const rawTokenHoldings: TokenHolding[] = [
-    {
+  const rawTokenHoldings: TokenHolding[] = [];
+  if (nativeBalanceWei > 0n) {
+    rawTokenHoldings.push({
       address: NATIVE_ETN_ADDRESS,
       symbol: "ETN",
       name: "Electroneum (Native)",
@@ -187,19 +188,21 @@ export async function fetchPortfolioSummary(
       totalValueUsd: nativeValueUsd,
       allocationPercent: 0,
       isVerified: true,
-    },
-  ];
+    });
+  }
 
-  const rawHoldingInputsForAdapters = [
-    {
-      address: NATIVE_ETN_ADDRESS,
-      symbol: "ETN",
-      name: "Electroneum",
-      decimals: 18,
-      balanceRaw: nativeBalanceWei,
-      balanceFormatted: nativeEtnAmount.toString(),
-    },
-  ];
+  const rawHoldingInputsForAdapters = nativeBalanceWei > 0n
+    ? [
+        {
+          address: NATIVE_ETN_ADDRESS,
+          symbol: "ETN",
+          name: "Electroneum",
+          decimals: 18,
+          balanceRaw: nativeBalanceWei,
+          balanceFormatted: nativeEtnAmount.toString(),
+        },
+      ]
+    : [];
 
   for (const item of rawTokensList) {
     if (!item.token?.address || !isAddress(item.token.address)) continue;
@@ -693,6 +696,19 @@ function generateHistoricalDataPoints(
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
   const numDays = 30;
+
+  if (currentNetWorthUsd <= 0) {
+    for (let i = numDays; i >= 0; i--) {
+      const t = now - i * dayMs;
+      points.push({
+        timestamp: t,
+        dateStr: new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        valueUsd: 0,
+        valueEtn: 0,
+      });
+    }
+    return points;
+  }
 
   const baseValue = currentNetWorthUsd * 0.92;
   const variance = currentNetWorthUsd * 0.03;

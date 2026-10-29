@@ -3,34 +3,33 @@ import { getAddress, isAddress, type Address } from "viem";
 import { SHOWCASE_WALLETS, STORAGE_KEYS } from "@/lib/constants/myverse";
 import type { WatchlistItem } from "./types";
 
+const SHOWCASE_ADDRESS_SET = new Set(
+  SHOWCASE_WALLETS.map((w) => w.address.toLowerCase())
+);
+
 /**
- * Returns the default preset list of watchlisted wallets.
+ * Returns an empty list as default for the user's personal saved watchlist.
+ * Showcase whales are never added by default to prevent data leakage into My Portfolio.
  */
 export function getDefaultWatchlist(): WatchlistItem[] {
-  return SHOWCASE_WALLETS.map((w, index) => ({
-    address: w.address,
-    label: w.label,
-    category: w.category,
-    addedAt: Date.now() - index * 60000,
-  }));
+  return [];
 }
 
 /**
- * Read saved watchlist from browser localStorage with preset fallback.
+ * Read saved watchlist from browser localStorage.
+ * Filters out any preset showcase whales to guarantee that only user-added wallets are saved.
  */
 export function getSavedWatchlist(): WatchlistItem[] {
-  if (typeof window === "undefined") return getDefaultWatchlist();
+  if (typeof window === "undefined") return [];
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEYS.WATCHLIST);
     if (!raw) {
-      const defaults = getDefaultWatchlist();
-      saveWatchlist(defaults);
-      return defaults;
+      return [];
     }
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      return getDefaultWatchlist();
+      return [];
     }
 
     return parsed
@@ -40,7 +39,9 @@ export function getSavedWatchlist(): WatchlistItem[] {
           item !== null &&
           typeof item.address === "string" &&
           isAddress(item.address) &&
-          typeof item.label === "string"
+          typeof item.label === "string" &&
+          // STRICT RULE: Never treat preset showcase whales as user's personal watchlisted wallets
+          !SHOWCASE_ADDRESS_SET.has(item.address.toLowerCase())
         );
       })
       .map((item) => ({
@@ -48,7 +49,7 @@ export function getSavedWatchlist(): WatchlistItem[] {
         address: getAddress(item.address),
       }));
   } catch {
-    return getDefaultWatchlist();
+    return [];
   }
 }
 
@@ -73,7 +74,9 @@ export function addToWatchlist(address: string, label: string): WatchlistItem[] 
   const current = getSavedWatchlist();
 
   // If already exists, update label
-  const existsIndex = current.findIndex((item) => item.address.toLowerCase() === checksum.toLowerCase());
+  const existsIndex = current.findIndex(
+    (item) => item.address.toLowerCase() === checksum.toLowerCase()
+  );
   if (existsIndex >= 0) {
     const updated = [...current];
     updated[existsIndex] = {

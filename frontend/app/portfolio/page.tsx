@@ -49,6 +49,14 @@ function PortfolioPageContent() {
   const addressParam = searchParams.get("address");
   const modeParam = searchParams.get("mode");
 
+  // Top-Level Mode: "portfolio" (Personal) vs "explorer" (External Tracking)
+  const [viewMode, setViewMode] = useState<PortfolioViewMode>(() => {
+    if (modeParam === "explorer" || (addressParam && isAddress(addressParam))) {
+      return "explorer";
+    }
+    return "portfolio";
+  });
+
   const {
     targetAddress,
     summary,
@@ -63,6 +71,7 @@ function PortfolioPageContent() {
     isWatchlisted,
     toggleWatchlist,
     selectAddress,
+    clearPortfolio,
     refresh,
     account,
     connectWallet,
@@ -78,14 +87,9 @@ function PortfolioPageContent() {
     revokeProgress,
     revokeAllowance,
     batchRevokeAllowances,
-  } = usePortfolio(addressParam || undefined);
-
-  // Top-Level Mode: "portfolio" (Personal) vs "explorer" (External Tracking)
-  const [viewMode, setViewMode] = useState<PortfolioViewMode>(() => {
-    if (modeParam === "explorer" || (addressParam && isAddress(addressParam))) {
-      return "explorer";
-    }
-    return "portfolio";
+  } = usePortfolio({
+    initialAddress: addressParam || undefined,
+    mode: viewMode,
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("holdings");
@@ -100,14 +104,23 @@ function PortfolioPageContent() {
       setViewMode("explorer");
     } else if (modeParam === "portfolio") {
       setViewMode("portfolio");
+      clearPortfolio();
+      if (account) {
+        selectAddress(account);
+      } else {
+        selectAddress("");
+      }
     }
-  }, [addressParam, modeParam, selectAddress]);
+  }, [addressParam, modeParam, selectAddress, clearPortfolio, account]);
 
   // Handler: Switch to Personal Portfolio Mode
   const switchToPortfolioMode = () => {
     setViewMode("portfolio");
+    clearPortfolio();
     if (account) {
       selectAddress(account);
+    } else {
+      selectAddress("");
     }
     router.replace("/portfolio?mode=portfolio", { scroll: false });
   };
@@ -115,7 +128,12 @@ function PortfolioPageContent() {
   // Handler: Switch to External Explorer Mode
   const switchToExplorerMode = (externalAddr?: string) => {
     setViewMode("explorer");
-    const nextAddr = externalAddr || (targetAddress && targetAddress !== account ? targetAddress : DEFAULT_EXPLORER_ADDRESS);
+    clearPortfolio();
+    const nextAddr =
+      externalAddr ||
+      (targetAddress && isAddress(targetAddress) && targetAddress.toLowerCase() !== account?.toLowerCase()
+        ? targetAddress
+        : DEFAULT_EXPLORER_ADDRESS);
     selectAddress(nextAddr);
     router.replace(`/portfolio?address=${nextAddr}&mode=explorer`, { scroll: false });
   };
@@ -280,6 +298,8 @@ function PortfolioPageContent() {
                   timeframe={timeframe}
                   onTimeframeChange={setTimeframe}
                   loading={loading}
+                  activeAddress={account}
+                  isMyPortfolio={true}
                 />
 
                 {/* 4 Focused Personal Tabs (No Smart Money clutter in personal view) */}
@@ -503,6 +523,8 @@ function PortfolioPageContent() {
               timeframe={timeframe}
               onTimeframeChange={setTimeframe}
               loading={loading}
+              activeAddress={targetAddress}
+              isMyPortfolio={false}
             />
 
             {/* 5 Explorer Tabs (Includes Smart Money Radar) */}
