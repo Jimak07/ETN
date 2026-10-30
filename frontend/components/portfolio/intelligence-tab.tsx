@@ -21,6 +21,7 @@ import Link from "next/link";
 import type { Address } from "viem";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import type { TokenApprovalItem, WalletIntelligence } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
@@ -153,9 +154,15 @@ export function IntelligenceTab({
         {/* KPI 4: Active Approvals / Revoke Shield */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[0.65rem] font-semibold uppercase tracking-wider">
-              Revoke Shield
-            </span>
+            <InfoTooltip
+              term={WEB3_GLOSSARY.revokeShield.term}
+              definition={WEB3_GLOSSARY.revokeShield.definition}
+              underline
+            >
+              <span className="text-[0.65rem] font-semibold uppercase tracking-wider">
+                Revoke Shield
+              </span>
+            </InfoTooltip>
             {approvals.length > 0 ? (
               <ShieldAlert className="h-4 w-4 text-amber-400" />
             ) : (
@@ -191,9 +198,15 @@ export function IntelligenceTab({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-cyan-400" />
-            <h3 className="text-sm font-bold text-slate-100">
-              Revoke Shield · Active Allowances
-            </h3>
+            <InfoTooltip
+              term={WEB3_GLOSSARY.revokeShield.term}
+              definition={WEB3_GLOSSARY.revokeShield.definition}
+              underline
+            >
+              <h3 className="text-sm font-bold text-slate-100">
+                Revoke Shield · Active Allowances
+              </h3>
+            </InfoTooltip>
             {IS_PREMIUM_USER && (
               <span className="rounded bg-cyan-400/20 border border-cyan-400/40 px-1 py-0.2 text-[0.55rem] font-bold uppercase tracking-wider text-cyan-300">
                 PRO
@@ -271,15 +284,24 @@ export function IntelligenceTab({
                       <span className="font-mono font-semibold text-slate-200">
                         {app.allowanceFormatted}
                       </span>
-                      <span
-                        className={
+                      <InfoTooltip
+                        term={app.isUnlimited ? "Unlimited Approval" : "Bounded Allowance"}
+                        definition={
                           app.isUnlimited
-                            ? "block text-[0.62rem] text-amber-400 font-medium"
-                            : "block text-[0.62rem] text-emerald-400"
+                            ? WEB3_GLOSSARY.revokeShield.definition
+                            : "Bounded approval authorizes the smart contract to spend only up to this specific token limit. Revoking resets it to 0."
                         }
+                        showIcon
                       >
-                        {app.isUnlimited ? "Unlimited Allowance" : "Bounded Allowance"}
-                      </span>
+                        <span
+                          className={cn(
+                            "block text-[0.62rem] font-medium cursor-help",
+                            app.isUnlimited ? "text-amber-400" : "text-emerald-400"
+                          )}
+                        >
+                          {app.isUnlimited ? "Unlimited Allowance" : "Bounded Allowance"}
+                        </span>
+                      </InfoTooltip>
                     </div>
 
                     <a

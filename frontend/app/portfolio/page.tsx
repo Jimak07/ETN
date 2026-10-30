@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getAddress, isAddress, type Address } from "viem";
 
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { AddressSearchBar } from "@/components/portfolio/address-search-bar";
 import { DefiTab } from "@/components/portfolio/defi-tab";
 import { HoldingsTab } from "@/components/portfolio/holdings-tab";
@@ -465,10 +466,26 @@ function PortfolioPageContent() {
                   <span className="font-mono font-bold text-cyan-300">
                     {targetAddress.slice(0, 8)}...{targetAddress.slice(-6)}
                   </span>
-                  {summary?.isContract && (
-                    <span className="rounded bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.2 text-[0.6rem] text-purple-300 font-mono">
-                      Contract
-                    </span>
+                  {summary?.isContract ? (
+                    <InfoTooltip
+                      term={WEB3_GLOSSARY.contract.term}
+                      definition={WEB3_GLOSSARY.contract.definition}
+                      showIcon
+                    >
+                      <span className="rounded bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.2 text-[0.6rem] text-purple-300 font-mono hover:border-purple-400 transition cursor-help">
+                        Contract
+                      </span>
+                    </InfoTooltip>
+                  ) : (
+                    <InfoTooltip
+                      term={WEB3_GLOSSARY.eoa.term}
+                      definition={WEB3_GLOSSARY.eoa.definition}
+                      showIcon
+                    >
+                      <span className="rounded bg-emerald-500/20 border border-emerald-500/30 px-1.5 py-0.2 text-[0.6rem] text-emerald-300 font-mono hover:border-emerald-400 transition cursor-help">
+                        EOA Wallet
+                      </span>
+                    </InfoTooltip>
                   )}
                 </div>
 

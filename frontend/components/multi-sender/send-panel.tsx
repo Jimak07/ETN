@@ -21,6 +21,7 @@ import { useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { PreFlightModal } from "@/components/multi-sender/pre-flight-modal";
 import type { AssetKind, NftStandard, TokenState } from "@/hooks/use-multi-sender";
 import { cn } from "@/lib/cn";
@@ -337,7 +338,13 @@ export function SendPanel({
               </div>
             ) : (
               <div>
-                <strong className="text-cyan-300 font-semibold">Exact Allowance Policy:</strong>{" "}
+                <InfoTooltip
+                  term={WEB3_GLOSSARY.approvalPolicy.term}
+                  definition={WEB3_GLOSSARY.approvalPolicy.definition}
+                  underline
+                >
+                  <strong className="text-cyan-300 font-semibold">Exact Allowance Policy:</strong>
+                </InfoTooltip>{" "}
                 <span>
                   This transaction approves exactly{" "}
                   <span className="font-mono text-cyan-200">

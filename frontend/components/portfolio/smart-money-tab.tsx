@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import { fetchLiveWhaleSwaps, SMART_MONEY_LEADERBOARD } from "@/lib/portfolio/smart-money";
 import type { WhaleSwapEvent } from "@/lib/portfolio/types";
@@ -153,9 +154,15 @@ export function SmartMoneyTab({ etnUsdPrice, onSelectAddress }: SmartMoneyTabPro
                     </div>
 
                     <div>
-                      <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
-                        Win Rate
-                      </p>
+                      <InfoTooltip
+                        term="Win Rate"
+                        definition="Calculated percentage of profitable DEX swap exits versus entries based on historical on-chain trade analysis."
+                        underline
+                      >
+                        <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                          Win Rate
+                        </p>
+                      </InfoTooltip>
                       <p className="font-bold text-emerald-400 mt-0.5">
                         {wallet.winRatePercent.toFixed(1)}%
                       </p>

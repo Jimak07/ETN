@@ -19,6 +19,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { isAddress } from "viem";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import { exportPortfolioSnapshotCsv, exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
 import type { PortfolioSummary, Timeframe } from "@/lib/portfolio/types";
@@ -87,15 +88,20 @@ export function PortfolioHeader({
       {/* Connected Wallet Address Verification Pill (Requirement 4) */}
       {isMyPortfolio && activeAddress && isAddress(activeAddress) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/25 px-3 py-1.5 text-xs shadow-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-            </span>
-            <span className="font-semibold text-emerald-400 text-[0.68rem] uppercase tracking-wider">
-              Connected Wallet
-            </span>
-          </div>
+          <InfoTooltip
+            term={WEB3_GLOSSARY.eoa.term}
+            definition={WEB3_GLOSSARY.eoa.definition}
+          >
+            <div className="flex items-center gap-1.5 cursor-help">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+              </span>
+              <span className="font-semibold text-emerald-400 text-[0.68rem] uppercase tracking-wider">
+                Connected Wallet
+              </span>
+            </div>
+          </InfoTooltip>
 
           <span className="font-mono text-xs font-bold text-slate-100">
             {activeAddress}
@@ -136,18 +142,28 @@ export function PortfolioHeader({
 
             {/* Bundle Mode Active Pill */}
             {summary?.isBundle && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]">
-                <Layers className="h-3 w-3 text-amber-400" />
-                Bundle: {summary.bundledAddresses?.length ?? 1} Wallets Combined
-              </span>
+              <InfoTooltip
+                term="Multi-Wallet Bundle Mode"
+                definition="Aggregates balances, DeFi LP positions, and NFTs across multiple saved watchlist wallets simultaneously."
+              >
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)] cursor-help">
+                  <Layers className="h-3 w-3 text-amber-400" />
+                  Bundle: {summary.bundledAddresses?.length ?? 1} Wallets Combined
+                </span>
+              </InfoTooltip>
             )}
 
             {/* Pro / Premium Preview Badge */}
             {IS_PREMIUM_USER && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]">
-                <Crown className="h-3 w-3 text-cyan-300" />
-                PRO PREVIEW
-              </span>
+              <InfoTooltip
+                term="MyVerse Pro Preview"
+                definition="Early access tier unlocking cost-basis PnL calculations, smart money signals, and multi-wallet portfolio aggregation."
+              >
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)] cursor-help">
+                  <Crown className="h-3 w-3 text-cyan-300" />
+                  PRO PREVIEW
+                </span>
+              </InfoTooltip>
             )}
 
             <span className="font-mono rounded-full border border-slate-800 bg-slate-950/60 px-2 py-0.5 text-[0.62rem] text-slate-400">

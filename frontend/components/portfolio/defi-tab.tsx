@@ -4,6 +4,7 @@ import { ArrowUpRight, Coins, Crown, ExternalLink, Layers, Sparkles, TrendingDow
 import Link from "next/link";
 
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import type { DefiPosition } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
@@ -130,22 +131,42 @@ export function DefiTab({ positions, loading, isBundle = false }: DefiTabProps) 
                     <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                       {/* Impermanent Loss */}
                       <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2">
-                        <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
-                          Impermanent Loss
-                        </p>
+                        <InfoTooltip
+                          term={WEB3_GLOSSARY.impermanentLoss.term}
+                          definition={WEB3_GLOSSARY.impermanentLoss.definition}
+                          underline
+                        >
+                          <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                            Impermanent Loss
+                          </p>
+                        </InfoTooltip>
                         <p className="font-mono text-xs font-bold text-rose-400 mt-0.5">
                           {pos.impermanentLossPercent?.toFixed(2)}%
                         </p>
-                        <p className="text-[0.58rem] text-slate-500 mt-0.5">
-                          vs HODL ${pos.hodlValueUsd?.toFixed(2)}
-                        </p>
+                        <div className="mt-0.5">
+                          <InfoTooltip
+                            term={WEB3_GLOSSARY.hodlBaseline.term}
+                            definition={WEB3_GLOSSARY.hodlBaseline.definition}
+                            underline
+                          >
+                            <p className="text-[0.58rem] text-slate-500">
+                              vs HODL ${pos.hodlValueUsd?.toFixed(2)}
+                            </p>
+                          </InfoTooltip>
+                        </div>
                       </div>
 
                       {/* Earned Fees & Net Return */}
                       <div className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-2">
-                        <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
-                          Net LP Return
-                        </p>
+                        <InfoTooltip
+                          term={WEB3_GLOSSARY.netLpReturn.term}
+                          definition={WEB3_GLOSSARY.netLpReturn.definition}
+                          underline
+                        >
+                          <p className="text-[0.6rem] uppercase tracking-wider text-slate-500">
+                            Net LP Return
+                          </p>
+                        </InfoTooltip>
                         <p
                           className={cn(
                             "font-mono text-xs font-bold mt-0.5",

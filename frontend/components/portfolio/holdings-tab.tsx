@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 
 import { DUST_THRESHOLD_USD, IS_PREMIUM_USER } from "@/lib/constants/myverse";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import type { TokenHolding } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
@@ -114,19 +115,26 @@ export function HoldingsTab({
           <span className="font-semibold text-slate-200">{tokens.length}</span> assets
         </span>
 
-        <button
-          type="button"
-          onClick={onToggleHideDust}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition duration-200",
-            hideDust
-              ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
-              : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
-          )}
-        >
-          <Filter className="h-3 w-3" />
-          <span>{hideDust ? "Dust Hidden (< $0.05)" : "Show All Tokens"}</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onToggleHideDust}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition duration-200",
+              hideDust
+                ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                : "border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+            )}
+          >
+            <Filter className="h-3 w-3" />
+            <span>{hideDust ? "Dust Hidden (< $0.05)" : "Show All Tokens"}</span>
+          </button>
+          <InfoTooltip
+            term={WEB3_GLOSSARY.dustFilter.term}
+            definition={WEB3_GLOSSARY.dustFilter.definition}
+            showIcon
+          />
+        </div>
       </div>
 
       {/* Holdings List */}
@@ -266,9 +274,15 @@ export function HoldingsTab({
               <div className="flex items-center justify-between md:justify-center gap-6 md:w-1/4">
                 <div>
                   <div className="flex items-center gap-1">
-                    <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">
-                      Est. Buy Price
-                    </p>
+                    <InfoTooltip
+                      term={WEB3_GLOSSARY.estBuyPrice.term}
+                      definition={WEB3_GLOSSARY.estBuyPrice.definition}
+                      underline
+                    >
+                      <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">
+                        Est. Buy Price
+                      </p>
+                    </InfoTooltip>
                     {IS_PREMIUM_USER && (
                       <span className="text-[0.55rem] font-bold text-cyan-400">PRO</span>
                     )}
@@ -287,9 +301,15 @@ export function HoldingsTab({
 
                 <div>
                   <div className="flex items-center gap-1">
-                    <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">
-                      Unrealized PnL
-                    </p>
+                    <InfoTooltip
+                      term={WEB3_GLOSSARY.unrealizedPnl.term}
+                      definition={WEB3_GLOSSARY.unrealizedPnl.definition}
+                      underline
+                    >
+                      <p className="text-[0.62rem] uppercase tracking-wider text-slate-500">
+                        Unrealized PnL
+                      </p>
+                    </InfoTooltip>
                     {IS_PREMIUM_USER && (
                       <span className="text-[0.55rem] font-bold text-cyan-400">PRO</span>
                     )}

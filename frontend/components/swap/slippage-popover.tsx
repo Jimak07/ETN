@@ -5,6 +5,7 @@ import { AlertTriangle, Clock, Loader2, Lock, Settings2, ShieldCheck, SlidersHor
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { cn } from "@/lib/cn";
 import { SLIPPAGE_PRESETS } from "@/lib/constants/electroswap";
 
@@ -98,7 +99,13 @@ export function SlippagePopover({
             {/* Slippage tolerance */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-300 font-medium">Slippage Tolerance</span>
+                <InfoTooltip
+                  term={WEB3_GLOSSARY.slippageTolerance.term}
+                  definition={WEB3_GLOSSARY.slippageTolerance.definition}
+                  underline
+                >
+                  <span className="text-slate-300 font-medium">Slippage Tolerance</span>
+                </InfoTooltip>
                 <span className="font-mono text-cyan-300 font-semibold">{slippage}%</span>
               </div>
 
@@ -190,9 +197,15 @@ export function SlippagePopover({
             {/* Approval Security Policy */}
             <div className="space-y-2 pt-2 border-t border-slate-800/60">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-300 font-medium flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" /> Approval Policy
-                </span>
+                <InfoTooltip
+                  term={WEB3_GLOSSARY.approvalPolicy.term}
+                  definition={WEB3_GLOSSARY.approvalPolicy.definition}
+                  underline
+                >
+                  <span className="text-slate-300 font-medium flex items-center gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" /> Approval Policy
+                  </span>
+                </InfoTooltip>
                 <span className="text-[0.68rem] text-slate-400 capitalize">{approvalType}</span>
               </div>
 

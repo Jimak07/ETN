@@ -5,6 +5,7 @@ import { Bookmark, BookmarkCheck, Check, Copy, ExternalLink, Eye, Search, UserCh
 import { isAddress } from "viem";
 
 import { cn } from "@/lib/cn";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 
 interface AddressSearchBarProps {
@@ -99,16 +100,27 @@ export function AddressSearchBar({
               Whale / Watch Mode
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-emerald-400">
-              <UserCheck className="h-3 w-3 text-emerald-400" />
-              Connected Wallet
-            </span>
+            <InfoTooltip
+              term={WEB3_GLOSSARY.eoa.term}
+              definition={WEB3_GLOSSARY.eoa.definition}
+            >
+              <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[0.62rem] font-semibold uppercase tracking-wider text-emerald-400 cursor-help">
+                <UserCheck className="h-3 w-3 text-emerald-400" />
+                Connected Wallet
+              </span>
+            </InfoTooltip>
           )}
 
           {isContract && (
-            <span className="rounded-full border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[0.6rem] font-mono text-slate-400">
-              Smart Contract
-            </span>
+            <InfoTooltip
+              term={WEB3_GLOSSARY.contract.term}
+              definition={WEB3_GLOSSARY.contract.definition}
+              showIcon
+            >
+              <span className="rounded-full border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[0.6rem] font-mono text-slate-300 hover:border-cyan-500/40 transition cursor-help">
+                Smart Contract
+              </span>
+            </InfoTooltip>
           )}
 
           <span className="font-mono text-xs font-semibold text-slate-200">

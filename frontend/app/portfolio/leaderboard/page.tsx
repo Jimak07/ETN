@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isAddress, type Address } from "viem";
 
+import { InfoTooltip, getAddressTypeGlossary, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { cn } from "@/lib/cn";
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
@@ -481,9 +482,15 @@ function TokenLeaderboardContent() {
                         )}
 
                         {token.isNative && (
-                          <span className="rounded bg-amber-400/20 border border-amber-400/30 px-1 py-0.2 text-[0.55rem] font-bold text-amber-300 uppercase tracking-wider">
-                            L1 Coin
-                          </span>
+                          <InfoTooltip
+                            term="Layer-1 Native Coin"
+                            definition="Native Layer-1 network asset used to pay validator gas fees for all transactions across the Electroneum Smart Chain."
+                            stopPropagation={false}
+                          >
+                            <span className="rounded bg-amber-400/20 border border-amber-400/30 px-1 py-0.2 text-[0.55rem] font-bold text-amber-300 uppercase tracking-wider cursor-help">
+                              L1 Coin
+                            </span>
+                          </InfoTooltip>
                         )}
                       </div>
 
@@ -831,15 +838,30 @@ function TokenLeaderboardContent() {
                             </div>
 
                             <div className="flex items-center gap-1.5 text-[0.62rem] font-sans">
-                              {holder.isContract ? (
-                                <span className="rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.2 font-semibold text-purple-300">
-                                  {holder.contractName ?? "Contract / Pool"}
-                                </span>
-                              ) : (
-                                <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 font-semibold text-emerald-400">
-                                  EOA Wallet
-                                </span>
-                              )}
+                              {(() => {
+                                const glossary = getAddressTypeGlossary(
+                                  holder.isContract,
+                                  holder.contractName,
+                                  holder.address
+                                );
+                                return (
+                                  <InfoTooltip
+                                    term={glossary.term}
+                                    definition={glossary.definition}
+                                    showIcon
+                                  >
+                                    {holder.isContract ? (
+                                      <span className="rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.2 font-semibold text-purple-300 hover:border-purple-400 transition cursor-help">
+                                        {holder.contractName ?? "Contract / Pool"}
+                                      </span>
+                                    ) : (
+                                      <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 font-semibold text-emerald-400 hover:border-emerald-300 transition cursor-help">
+                                        EOA Wallet
+                                      </span>
+                                    )}
+                                  </InfoTooltip>
+                                );
+                              })()}
                             </div>
                           </div>
                         </td>

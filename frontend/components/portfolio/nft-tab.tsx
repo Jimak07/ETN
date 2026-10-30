@@ -4,6 +4,7 @@ import { ExternalLink, Image as ImageIcon, Send, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import type { NftHolding } from "@/lib/portfolio/types";
 
 interface NftTabProps {
@@ -76,9 +77,25 @@ function NftCard({ nft }: { nft: NftHolding }) {
         )}
 
         {/* Standard Badge */}
-        <span className="absolute top-2 right-2 rounded-full border border-slate-700 bg-slate-950/80 px-2 py-0.5 text-[0.6rem] font-mono text-cyan-300 backdrop-blur-md">
-          {nft.standard}
-        </span>
+        <div className="absolute top-2 right-2">
+          <InfoTooltip
+            term={
+              nft.standard === "ERC-1155"
+                ? WEB3_GLOSSARY.erc1155.term
+                : WEB3_GLOSSARY.erc721.term
+            }
+            definition={
+              nft.standard === "ERC-1155"
+                ? WEB3_GLOSSARY.erc1155.definition
+                : WEB3_GLOSSARY.erc721.definition
+            }
+            showIcon
+          >
+            <span className="rounded-full border border-slate-700 bg-slate-950/80 px-2 py-0.5 text-[0.6rem] font-mono text-cyan-300 backdrop-blur-md hover:border-cyan-400 transition cursor-help">
+              {nft.standard}
+            </span>
+          </InfoTooltip>
+        </div>
       </div>
 
       {/* Metadata Info */}

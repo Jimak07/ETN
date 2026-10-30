@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
 
 import { Button } from "@/components/ui/button";
+import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { CANONICAL_ECOSYSTEM_SYMBOLS, type TokenInfo } from "@/lib/constants/electroswap";
@@ -427,7 +428,13 @@ export function SwapCard() {
             </div>
 
             <div className="flex items-center justify-between text-slate-400">
-              <span>Minimum Received</span>
+              <InfoTooltip
+                term="Minimum Received"
+                definition="The guaranteed minimum amount of tokens you will receive after taking into account your slippage tolerance. If the price moves worse than this, the swap safely reverts."
+                underline
+              >
+                <span>Minimum Received</span>
+              </InfoTooltip>
               <span className="font-mono text-slate-200">
                 {Number(
                   formatUnits(quote.amountOutMinWei, receiveToken.decimals)
@@ -437,12 +444,39 @@ export function SwapCard() {
             </div>
 
             <div className="flex items-center justify-between text-slate-400">
-              <span>Slippage Tolerance</span>
+              <InfoTooltip
+                term={WEB3_GLOSSARY.slippageTolerance.term}
+                definition={WEB3_GLOSSARY.slippageTolerance.definition}
+                underline
+              >
+                <span>Slippage Tolerance</span>
+              </InfoTooltip>
               <span className="font-mono text-cyan-300">{slippage}%</span>
             </div>
 
             <div className="flex items-center justify-between text-slate-400">
-              <span>Liquidity Provider Fee</span>
+              <InfoTooltip
+                term={WEB3_GLOSSARY.priceImpact.term}
+                definition={WEB3_GLOSSARY.priceImpact.definition}
+                underline
+              >
+                <span>Price Impact</span>
+              </InfoTooltip>
+              <span className="font-mono text-slate-200">
+                {quote.priceImpactPercent !== undefined && quote.priceImpactPercent > 0
+                  ? `< ${quote.priceImpactPercent}%`
+                  : "< 0.01%"}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-400">
+              <InfoTooltip
+                term="Liquidity Provider Fee"
+                definition="A 0.3% protocol fee rewarded directly to ElectroSwap liquidity providers for facilitating decentralized trades."
+                underline
+              >
+                <span>Liquidity Provider Fee</span>
+              </InfoTooltip>
               <span className="font-mono text-slate-200">{quote.lpFeePercent}%</span>
             </div>
 
