@@ -145,7 +145,7 @@ function PortfolioPageContent() {
     (!account || targetAddress.toLowerCase() !== account.toLowerCase());
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:py-12">
+    <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-6 lg:px-10 lg:py-12 xl:px-12">
       <div className="space-y-6">
         {/* Navigation Breadcrumb & Top Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

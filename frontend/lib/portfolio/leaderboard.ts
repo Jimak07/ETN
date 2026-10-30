@@ -106,7 +106,7 @@ export async function fetchTopEcosystemTokens(
   try {
     const url = `/api/leaderboard/tokens?sort=${sortMode}${refresh ? "&refresh=true" : ""}`;
     const res = await fetch(url, {
-      signal,
+      signal: signal ?? AbortSignal.timeout(8000),
       headers: { Accept: "application/json" },
     });
 
@@ -194,7 +194,7 @@ export async function fetchCustomTokenByAddress(
   // 1. Try querying Blockscout for token details
   try {
     const res = await fetch(`${BLOCKSCOUT_API_BASE}/tokens/${checksum}`, {
-      signal,
+      signal: signal ?? AbortSignal.timeout(8000),
       headers: { Accept: "application/json" },
     });
     if (res.ok) {
@@ -361,7 +361,7 @@ export async function fetchTokenHolders(
   if (token.isNative) {
     try {
       const res = await fetch(`${BLOCKSCOUT_API_BASE}/addresses`, {
-        signal,
+        signal: signal ?? AbortSignal.timeout(8000),
         headers: { Accept: "application/json" },
       });
 
@@ -407,7 +407,7 @@ export async function fetchTokenHolders(
   // B. ERC-20 Token Top Holders
   try {
     const res = await fetch(`${BLOCKSCOUT_API_BASE}/tokens/${token.address}/holders`, {
-      signal,
+      signal: signal ?? AbortSignal.timeout(8000),
       headers: { Accept: "application/json" },
     });
 

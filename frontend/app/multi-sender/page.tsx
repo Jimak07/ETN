@@ -114,7 +114,7 @@ export default function MultiSenderPage() {
   const networkIsWarning = account !== null && (!chainOk || chain.testnet);
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
+    <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-6 lg:px-10 lg:py-12 xl:px-12">
       <motion.div
         initial={reduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -248,81 +248,85 @@ export default function MultiSenderPage() {
           onSelect={switchTo}
         />
 
-        {/* STRICT TOP-TO-BOTTOM FLOW */}
-        <div className="space-y-6">
-          {/* 1. TOP SECTION: Asset Selection Card */}
-          <AssetSelector
-            asset={asset}
-            onAssetChange={setAsset}
-            chain={chain}
-            tokenAddress={tokenAddress}
-            onTokenAddressChange={setTokenAddress}
-            token={token}
-            disabled={sendBusy}
-            nftStandard={nftStandard}
-            onNftStandardChange={setNftStandard}
-          />
+        {/* FLUID RESPONSIVE FLOW: Stacks cleanly on mobile, split-column command station on widescreen */}
+        <div className="grid gap-6 xl:grid-cols-12 items-start">
+          <div className="space-y-6 xl:col-span-7 2xl:col-span-8 min-w-0">
+            {/* 1. TOP SECTION: Asset Selection Card */}
+            <AssetSelector
+              asset={asset}
+              onAssetChange={setAsset}
+              chain={chain}
+              tokenAddress={tokenAddress}
+              onTokenAddressChange={setTokenAddress}
+              token={token}
+              disabled={sendBusy}
+              nftStandard={nftStandard}
+              onNftStandardChange={setNftStandard}
+            />
 
-          {/* 2. MIDDLE SECTION: Recipient Entry Card with prominent Import CSV button */}
-          <RecipientTable
-            rows={rows}
-            parsed={parsed}
-            symbol={symbol}
-            decimals={decimals}
-            disabled={sendBusy}
-            onUpdate={update}
-            onRemove={removeRow}
-            onAdd={addRow}
-            onApplyUniformAmount={applyUniformAmount}
-            onBulkImport={() => setBulkImportOpen(true)}
-            onQuickPaste={() => setQuickPasteOpen(true)}
-            onAutoFillTokenIds={autoFillTokenIds}
-            onRemoveInvalidRows={removeInvalidRows}
-            onRemoveDuplicates={removeDuplicates}
-            onMergeDuplicates={mergeDuplicates}
-            onClearAll={clearAll}
-            onExportCsv={exportCsv}
-            selfAddress={account}
-            asset={asset}
-            nftStandard={nftStandard}
-            nftTokenId={nftTokenId}
-            onNftTokenIdChange={setNftTokenId}
-          />
+            {/* 2. MIDDLE SECTION: Recipient Entry Card with prominent Import CSV button */}
+            <RecipientTable
+              rows={rows}
+              parsed={parsed}
+              symbol={symbol}
+              decimals={decimals}
+              disabled={sendBusy}
+              onUpdate={update}
+              onRemove={removeRow}
+              onAdd={addRow}
+              onApplyUniformAmount={applyUniformAmount}
+              onBulkImport={() => setBulkImportOpen(true)}
+              onQuickPaste={() => setQuickPasteOpen(true)}
+              onAutoFillTokenIds={autoFillTokenIds}
+              onRemoveInvalidRows={removeInvalidRows}
+              onRemoveDuplicates={removeDuplicates}
+              onMergeDuplicates={mergeDuplicates}
+              onClearAll={clearAll}
+              onExportCsv={exportCsv}
+              selfAddress={account}
+              asset={asset}
+              nftStandard={nftStandard}
+              nftTokenId={nftTokenId}
+              onNftTokenIdChange={setNftTokenId}
+            />
+          </div>
 
-          {/* 3. BOTTOM SECTION: Execution Card (Summary stats + Glowing Approve/Send buttons) */}
-          <SendPanel
-            asset={asset}
-            token={token}
-            symbol={symbol}
-            decimals={decimals}
-            recipientCount={parsed.valid.length}
-            invalidCount={parsed.issueCount}
-            rowCount={parsed.drafts.length}
-            batchCount={batches.length}
-            totalWei={parsed.totalWei}
-            balance={account ? spendableBalance : null}
-            nativeBalance={account ? nativeBalance : null}
-            account={account}
-            chainId={chainId}
-            walletChainId={walletChainId}
-            walletChainName={walletChainName}
-            chain={chain}
-            chainOk={chainOk}
-            switching={switching}
-            onSwitchChain={switchTo}
-            connecting={connecting}
-            connectionError={connectionError}
-            onConnect={connect}
-            configured={configured}
-            contractAddress={contractAddress}
-            busy={sendBusy}
-            onSend={handleSend}
-            onApprove={handleApprove}
-            approving={approving}
-            nftStandard={nftStandard}
-            nftApproved={nftApproved}
-            nftTokenId={nftTokenId}
-          />
+          <div className="space-y-6 xl:col-span-5 2xl:col-span-4 min-w-0 xl:sticky xl:top-20">
+            {/* 3. EXECUTION CARD: Summary stats + Glowing Approve/Send buttons */}
+            <SendPanel
+              asset={asset}
+              token={token}
+              symbol={symbol}
+              decimals={decimals}
+              recipientCount={parsed.valid.length}
+              invalidCount={parsed.issueCount}
+              rowCount={parsed.drafts.length}
+              batchCount={batches.length}
+              totalWei={parsed.totalWei}
+              balance={account ? spendableBalance : null}
+              nativeBalance={account ? nativeBalance : null}
+              account={account}
+              chainId={chainId}
+              walletChainId={walletChainId}
+              walletChainName={walletChainName}
+              chain={chain}
+              chainOk={chainOk}
+              switching={switching}
+              onSwitchChain={switchTo}
+              connecting={connecting}
+              connectionError={connectionError}
+              onConnect={connect}
+              configured={configured}
+              contractAddress={contractAddress}
+              busy={sendBusy}
+              onSend={handleSend}
+              onApprove={handleApprove}
+              approving={approving}
+              nftStandard={nftStandard}
+              nftApproved={nftApproved}
+              nftTokenId={nftTokenId}
+            />
+          </div>
         </div>
 
         {/* Footer */}

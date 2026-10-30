@@ -78,6 +78,7 @@ async function fetchEtnUsdPriceAndStats(): Promise<{
 
   try {
     const res = await fetch(BLOCKSCOUT_STATS_URL, {
+      signal: AbortSignal.timeout(8000),
       headers: { Accept: "application/json" },
       next: { revalidate: 60 },
     });
@@ -110,7 +111,11 @@ async function fetchEtnUsdPriceAndStats(): Promise<{
     try {
       const cgRes = await fetch(
         "https://api.coingecko.com/api/v3/simple/price?ids=electroneum&vs_currencies=usd",
-        { headers: { Accept: "application/json" }, next: { revalidate: 60 } }
+        {
+          signal: AbortSignal.timeout(8000),
+          headers: { Accept: "application/json" },
+          next: { revalidate: 60 },
+        }
       );
       if (cgRes.ok) {
         const cgData = (await cgRes.json()) as { electroneum?: { usd?: number } };
@@ -131,7 +136,9 @@ async function fetchEtnUsdPriceAndStats(): Promise<{
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const sortParam = (searchParams.get("sort") || "market-cap").toLowerCase();
+    const rawSort = (searchParams.get("sort") || "market-cap").toLowerCase().trim();
+    // Strict parameter whitelist
+    const sortParam = rawSort === "holders" || rawSort === "liquidity" ? rawSort : "market-cap";
     const isRefresh = searchParams.get("refresh") === "true";
 
     const now = Date.now();
@@ -189,6 +196,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const res = await fetch(`${BLOCKSCOUT_API_BASE}/tokens?type=ERC-20`, {
+        signal: AbortSignal.timeout(8000),
         headers: { Accept: "application/json" },
         next: { revalidate: 60 },
       });

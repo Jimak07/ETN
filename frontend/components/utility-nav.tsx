@@ -86,7 +86,7 @@ export function UtilityNav() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto flex h-14 w-full max-w-[1920px] items-center justify-between gap-4 px-3 sm:px-6 lg:px-10 xl:px-12">
         {/* Brand / Logo */}
         <div className="flex items-center gap-3 shrink-0">
           <Link

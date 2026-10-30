@@ -20,7 +20,7 @@ const CACHE_TTL_MS = 30_000; // 30 seconds
 /**
  * Fetch real-time ETN price in USD from Blockscout stats API with CoinGecko fallback.
  */
-export async function fetchEtnUsdPrice(signal?: AbortSignal): Promise<number> {
+export async function fetchEtnUsdPrice(signal: AbortSignal = AbortSignal.timeout(8000)): Promise<number> {
   const now = Date.now();
   if (cachedEtnPrice && now - cachedEtnPrice.timestamp < CACHE_TTL_MS) {
     return cachedEtnPrice.priceUsd;

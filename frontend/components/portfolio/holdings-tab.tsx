@@ -18,6 +18,7 @@ import Link from "next/link";
 import { DUST_THRESHOLD_USD, IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
+import { sanitizeImageUrl } from "@/lib/sanitize";
 import type { TokenHolding } from "@/lib/portfolio/types";
 import { cn } from "@/lib/cn";
 
@@ -153,10 +154,10 @@ export function HoldingsTab({
               {/* Token Identity */}
               <div className="flex items-center gap-3 min-w-0 md:w-1/4">
                 <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-950 font-bold text-cyan-300 text-xs shadow-inner">
-                  {token.iconUrl ? (
+                  {sanitizeImageUrl(token.iconUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={token.iconUrl}
+                      src={sanitizeImageUrl(token.iconUrl) ?? ""}
                       alt={token.symbol}
                       className="h-7 w-7 rounded-full object-contain"
                       onError={(e) => {

@@ -153,7 +153,7 @@ export default function Page() {
     analytics.data ? analytics.data.failures[target] : analytics.error;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+    <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-6 lg:px-10 lg:py-12 xl:px-12">
       <div className="space-y-4 lg:space-y-6">
         <Hero
           connection={connection}

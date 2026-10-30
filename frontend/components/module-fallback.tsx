@@ -47,7 +47,7 @@ export function ModuleFallback({
   const Icon = ICON_MAP[iconKey] ?? ICON_MAP.default;
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-4xl flex-col items-center justify-center px-4 py-12 sm:px-6">
+    <main className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-[1920px] flex-col items-center justify-center px-3 py-12 sm:px-6 lg:px-10 xl:px-12">
       <div className="w-full max-w-xl space-y-6 text-center">
         {/* Navigation Breadcrumb */}
         <div className="flex justify-center">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
+import { sanitizeImageUrl, sanitizeUrl } from "@/lib/sanitize";
 import type { NftHolding } from "@/lib/portfolio/types";
 
 interface NftTabProps {
@@ -55,15 +56,17 @@ export function NftTab({ nfts, loading }: NftTabProps) {
 
 function NftCard({ nft }: { nft: NftHolding }) {
   const [imgError, setImgError] = useState(false);
+  const safeImageUrl = sanitizeImageUrl(nft.imageUrl);
+  const safeExplorerUrl = sanitizeUrl(nft.explorerUrl);
 
   return (
     <div className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/50 p-3 transition-all duration-300 hover:border-cyan-500/40 hover:bg-slate-900/80 hover:shadow-glow">
       {/* Media Container */}
       <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950 flex items-center justify-center">
-        {nft.imageUrl && !imgError ? (
+        {safeImageUrl && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={nft.imageUrl}
+            src={safeImageUrl}
             alt={nft.name}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             onError={() => setImgError(true)}
@@ -113,15 +116,19 @@ function NftCard({ nft }: { nft: NftHolding }) {
 
       {/* Action Toolbar */}
       <div className="mt-3.5 flex items-center justify-between border-t border-slate-800/80 pt-2 text-[0.68rem]">
-        <a
-          href={nft.explorerUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="flex items-center gap-1 text-slate-400 hover:text-cyan-300 transition"
-        >
-          <span>Instance</span>
-          <ExternalLink className="h-2.5 w-2.5" />
-        </a>
+        {safeExplorerUrl ? (
+          <a
+            href={safeExplorerUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="flex items-center gap-1 text-slate-400 hover:text-cyan-300 transition"
+          >
+            <span>Instance</span>
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        ) : (
+          <span className="text-slate-500">Instance</span>
+        )}
 
         {/* Quick Batch Send via PulseDrop Shortcut */}
         <Link

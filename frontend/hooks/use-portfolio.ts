@@ -385,16 +385,31 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
       if (!provider || !account) {
         throw new Error("Wallet not connected");
       }
-      const key = `${tokenAddress.toLowerCase()}-${spenderAddress.toLowerCase()}`;
+      if (!isAddress(tokenAddress, { strict: false }) || !isAddress(spenderAddress, { strict: false })) {
+        throw new Error("Invalid token or spender contract address");
+      }
+      // Security Guardrail: Disallow revoking from an external wallet profile
+      if (!isBundleMode && targetAddress && targetAddress.toLowerCase() !== account.toLowerCase()) {
+        throw new Error("Cannot execute revoke for an external wallet profile");
+      }
+      // Security Guardrail: Enforce Electroneum Mainnet
+      const activeChainId = chainId ?? ETN_MAINNET.id;
+      if (activeChainId !== ETN_MAINNET.id) {
+        throw new Error("Revoke Shield requires Electroneum Mainnet (Chain 52014)");
+      }
+
+      const validToken = getAddress(tokenAddress);
+      const validSpender = getAddress(spenderAddress);
+      const key = `${validToken.toLowerCase()}-${validSpender.toLowerCase()}`;
       setRevokingSpender(key);
+
       try {
-        const activeChainId = chainId ?? ETN_MAINNET.id;
         const walletClient = getWalletClient(provider, account, activeChainId);
         const hash = await walletClient.writeContract({
-          address: tokenAddress,
+          address: validToken,
           abi: erc20Abi,
           functionName: "approve",
-          args: [spenderAddress, 0n],
+          args: [validSpender, 0n],
         });
         const client = getReadClient(activeChainId);
         if (client) {
@@ -406,8 +421,8 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
             const updatedApprovals = prev.intelligence.approvals.filter(
               (a) =>
                 !(
-                  a.tokenAddress.toLowerCase() === tokenAddress.toLowerCase() &&
-                  a.spenderAddress.toLowerCase() === spenderAddress.toLowerCase()
+                  a.tokenAddress.toLowerCase() === validToken.toLowerCase() &&
+                  a.spenderAddress.toLowerCase() === validSpender.toLowerCase()
                 )
             );
             return {
@@ -424,7 +439,7 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
         setRevokingSpender(null);
       }
     },
-    [provider, account, chainId, summary]
+    [provider, account, chainId, targetAddress, isBundleMode, summary]
   );
 
   const batchRevokeAllowances = useCallback(
@@ -432,13 +447,22 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
       if (!provider || !account) {
         throw new Error("Wallet not connected");
       }
+      // Security Guardrail: Disallow batch revoking from an external wallet profile
+      if (!isBundleMode && targetAddress && targetAddress.toLowerCase() !== account.toLowerCase()) {
+        throw new Error("Cannot execute batch revoke for an external wallet profile");
+      }
+      // Security Guardrail: Enforce Electroneum Mainnet
+      const activeChainId = chainId ?? ETN_MAINNET.id;
+      if (activeChainId !== ETN_MAINNET.id) {
+        throw new Error("Revoke Shield requires Electroneum Mainnet (Chain 52014)");
+      }
+
       setBatchRevoking(true);
       setRevokeProgress({ current: 0, total: approvals.length });
       let successful = 0;
       let failed = 0;
       const revokedKeys = new Set<string>();
 
-      const activeChainId = chainId ?? ETN_MAINNET.id;
       const walletClient = getWalletClient(provider, account, activeChainId);
       const client = getReadClient(activeChainId);
 
@@ -447,17 +471,24 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
           const item = approvals[i];
           setRevokeProgress({ current: i + 1, total: approvals.length });
           try {
+            if (!isAddress(item.tokenAddress, { strict: false }) || !isAddress(item.spenderAddress, { strict: false })) {
+              failed++;
+              continue;
+            }
+            const validToken = getAddress(item.tokenAddress);
+            const validSpender = getAddress(item.spenderAddress);
+
             const hash = await walletClient.writeContract({
-              address: item.tokenAddress,
+              address: validToken,
               abi: erc20Abi,
               functionName: "approve",
-              args: [item.spenderAddress, 0n],
+              args: [validSpender, 0n],
             });
             if (client) {
               await client.waitForTransactionReceipt({ hash });
             }
             successful++;
-            revokedKeys.add(`${item.tokenAddress.toLowerCase()}-${item.spenderAddress.toLowerCase()}`);
+            revokedKeys.add(`${validToken.toLowerCase()}-${validSpender.toLowerCase()}`);
           } catch (err) {
             console.error(`Failed to revoke ${item.tokenSymbol} for ${item.spenderName}:`, err);
             failed++;

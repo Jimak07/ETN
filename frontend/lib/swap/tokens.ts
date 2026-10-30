@@ -143,7 +143,7 @@ export async function verifyOnChainToken(
 }
 
 /**
- * Load imported tokens from local storage.
+ * Load imported tokens from local storage with strict schema validation.
  */
 export function getStoredCustomTokens(): TokenInfo[] {
   if (typeof window === "undefined") return [];
@@ -152,9 +152,16 @@ export function getStoredCustomTokens(): TokenInfo[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (t) => t && typeof t.address === "string" && isAddress(t.address)
-    );
+    return parsed
+      .slice(0, 50)
+      .filter((t): t is Record<string, unknown> => Boolean(t && typeof t === "object" && typeof t.address === "string" && isAddress(t.address, { strict: false })))
+      .map((t) => ({
+        address: getAddress(t.address as string),
+        symbol: String(t.symbol || "UNKNOWN").trim().slice(0, 16),
+        name: String(t.name || "Custom Token").trim().slice(0, 32),
+        decimals: typeof t.decimals === "number" && Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= 36 ? t.decimals : 18,
+        isCustom: true,
+      }));
   } catch {
     return [];
   }
@@ -165,12 +172,23 @@ export function getStoredCustomTokens(): TokenInfo[] {
  */
 export function saveCustomToken(token: TokenInfo): TokenInfo[] {
   if (typeof window === "undefined") return [];
+  if (!isAddress(token.address, { strict: false })) return getStoredCustomTokens();
+
   try {
+    const checksum = getAddress(token.address);
+    const validatedToken: TokenInfo = {
+      address: checksum,
+      symbol: String(token.symbol || "UNKNOWN").trim().slice(0, 16),
+      name: String(token.name || "Custom Token").trim().slice(0, 32),
+      decimals: typeof token.decimals === "number" && Number.isInteger(token.decimals) && token.decimals >= 0 && token.decimals <= 36 ? token.decimals : 18,
+      isCustom: true,
+    };
+
     const existing = getStoredCustomTokens();
     const filtered = existing.filter(
-      (t) => t.address.toLowerCase() !== token.address.toLowerCase()
+      (t) => t.address.toLowerCase() !== checksum.toLowerCase()
     );
-    const updated = [{ ...token, isCustom: true }, ...filtered];
+    const updated = [validatedToken, ...filtered].slice(0, 50);
     localStorage.setItem(CUSTOM_TOKENS_STORAGE_KEY, JSON.stringify(updated));
     return updated;
   } catch {

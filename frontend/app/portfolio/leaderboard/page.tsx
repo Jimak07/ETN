@@ -30,6 +30,7 @@ import { InfoTooltip, getAddressTypeGlossary, WEB3_GLOSSARY } from "@/components
 import { cn } from "@/lib/cn";
 import { IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
+import { sanitizeImageUrl } from "@/lib/sanitize";
 import {
   fetchCustomTokenByAddress,
   fetchTokenHolders,
@@ -232,7 +233,7 @@ function TokenLeaderboardContent() {
   const totalPages = Math.ceil(filteredHolders.length / pageSize) || 1;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-12">
+    <main className="mx-auto w-full max-w-[1920px] px-3 py-8 sm:px-6 lg:px-10 lg:py-12 xl:px-12">
       <div className="space-y-6">
         {/* Breadcrumb & Navigation */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -426,7 +427,7 @@ function TokenLeaderboardContent() {
 
           {/* Tokens Multi-Card Grid */}
           {tokensLoading && tokens.length === 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 py-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 py-2">
               {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div
                   key={i}
@@ -439,7 +440,7 @@ function TokenLeaderboardContent() {
               No ecosystem tokens match &quot;{tokenSearchQuery}&quot;. Paste a valid 0x address above to load custom tokens.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {displayedTokens.map((token) => {
                 const isSelected =
                   selectedToken?.address.toLowerCase() === token.address.toLowerCase();
@@ -507,10 +508,10 @@ function TokenLeaderboardContent() {
                     {/* Middle Row: Icon & Token Identity */}
                     <div className="flex items-center gap-2.5 my-1">
                       <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 font-bold text-cyan-300 text-xs shadow-inner">
-                        {token.iconUrl ? (
+                        {sanitizeImageUrl(token.iconUrl) ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={token.iconUrl}
+                            src={sanitizeImageUrl(token.iconUrl) ?? ""}
                             alt={token.symbol}
                             className="h-6 w-6 rounded-full object-contain"
                             onError={(e) => {
@@ -582,10 +583,10 @@ function TokenLeaderboardContent() {
               {/* Token Identity */}
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 font-bold text-cyan-300 text-sm shadow-md">
-                  {selectedToken.iconUrl ? (
+                  {sanitizeImageUrl(selectedToken.iconUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={selectedToken.iconUrl}
+                      src={sanitizeImageUrl(selectedToken.iconUrl) ?? ""}
                       alt={selectedToken.symbol}
                       className="h-8 w-8 rounded-full object-contain"
                       onError={(e) => {
