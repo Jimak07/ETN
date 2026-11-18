@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import {
   Activity,
   ArrowLeftRight,
@@ -13,11 +12,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { isAddress } from "viem";
 
+import { WalletDropdown } from "@/components/wallet-dropdown";
+import { WalletModal } from "@/components/wallet-modal";
 import { cn } from "@/lib/cn";
 import { ETN_CHAIN_ID, ETN_CHAIN_NAME, ETN_EXPLORER_URL } from "@/lib/etn";
-import { getEthereumProvider } from "@/lib/wallet";
 
 interface NavModule {
   name: string;
@@ -87,164 +86,100 @@ const NAV_MODULES: readonly NavModule[] = [
 export function UtilityNav() {
   const pathname = usePathname();
 
-  // Universal Daily Check-in & Activity Backfill trigger whenever a wallet connects on ANY page
-  useEffect(() => {
-    const provider = getEthereumProvider();
-    if (!provider) return;
-
-    let handledAddress: string | null = null;
-
-    const triggerUniversalCheckin = async (rawAddress: unknown) => {
-      if (typeof rawAddress !== "string" || !isAddress(rawAddress)) return;
-      const normalized = rawAddress.toLowerCase();
-      if (handledAddress === normalized) return;
-
-      // Session debounce: avoid spamming within the same session/minute
-      const sessionKey = `verse_checkin_${normalized}`;
-      const last = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(sessionKey) : null;
-      const now = Date.now();
-      if (last && now - Number(last) < 60_000) return;
-      if (typeof sessionStorage !== "undefined") {
-        sessionStorage.setItem(sessionKey, String(now));
-      }
-      handledAddress = normalized;
-
-      try {
-        await fetch("/api/analytics", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "DAILY_CHECKIN",
-            walletAddress: normalized,
-          }),
-        });
-      } catch (err) {
-        console.warn("[UtilityNav] Universal wallet check-in trigger:", err);
-      }
-    };
-
-    // 1. Initial accounts lookup
-    provider
-      .request({ method: "eth_accounts" })
-      .then((accounts) => {
-        if (Array.isArray(accounts) && accounts[0]) {
-          void triggerUniversalCheckin(accounts[0]);
-        }
-      })
-      .catch(() => {});
-
-    // 2. Listen to accountsChanged event
-    const handleAccountsChanged = (accounts: unknown) => {
-      if (Array.isArray(accounts) && accounts[0]) {
-        void triggerUniversalCheckin(accounts[0]);
-      }
-    };
-
-    const providerObj = provider as {
-      on?: (event: string, handler: (accounts: unknown) => void) => void;
-      removeListener?: (event: string, handler: (accounts: unknown) => void) => void;
-    };
-
-    if (typeof providerObj.on === "function") {
-      providerObj.on("accountsChanged", handleAccountsChanged);
-    }
-
-    return () => {
-      if (typeof providerObj.removeListener === "function") {
-        providerObj.removeListener("accountsChanged", handleAccountsChanged);
-      }
-    };
-  }, []);
-
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 w-full max-w-[1920px] items-center justify-between gap-4 px-3 sm:px-6 lg:px-10 xl:px-12">
-        {/* Brand / Logo */}
-        <div className="flex items-center gap-3 shrink-0">
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-slate-100 transition hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 rounded-lg py-1 px-1.5 -ml-1.5"
+    <>
+      <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-[1920px] items-center justify-between gap-3 sm:gap-4 px-3 sm:px-6 lg:px-10 xl:px-12">
+          {/* Brand / Logo */}
+          <div className="flex items-center gap-3 shrink-0">
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-slate-100 transition hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 rounded-lg py-1 px-1.5 -ml-1.5"
+            >
+              <span className="relative flex h-2.5 w-2.5" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+              </span>
+              <span className="bg-gradient-to-r from-slate-100 via-slate-200 to-cyan-300 bg-clip-text font-bold text-transparent">
+                ETNVerse Hub
+              </span>
+            </Link>
+            <span className="hidden sm:inline-flex items-center rounded-full border border-slate-800 bg-slate-900/60 px-2.5 py-0.5 text-[0.62rem] font-mono text-slate-400">
+              Chain {ETN_CHAIN_ID}
+            </span>
+          </div>
+
+          {/* Module Navigation Tabs */}
+          <nav
+            aria-label="ETNVerse Hub modules"
+            className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-xs"
           >
-            <span className="relative flex h-2.5 w-2.5" aria-hidden>
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
-            </span>
-            <span className="bg-gradient-to-r from-slate-100 via-slate-200 to-cyan-300 bg-clip-text font-bold text-transparent">
-              ETNVerse Hub
-            </span>
-          </Link>
-          <span className="hidden sm:inline-flex items-center rounded-full border border-slate-800 bg-slate-900/60 px-2.5 py-0.5 text-[0.62rem] font-mono text-slate-400">
-            Chain {ETN_CHAIN_ID}
-          </span>
-        </div>
+            {NAV_MODULES.map((item) => {
+              const Icon = item.icon;
+              const isActive = item.href ? pathname === item.href : false;
 
-        {/* Module Navigation Tabs */}
-        <nav
-          aria-label="ETNVerse Hub modules"
-          className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-xs"
-        >
-          {NAV_MODULES.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.href ? pathname === item.href : false;
-
-            if (item.isLive && item.href) {
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={cn(
-                    "group relative flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-200 shrink-0",
-                    isActive
-                      ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200 shadow-sm"
-                      : "border-transparent text-slate-400 hover:border-slate-800 hover:bg-slate-900/60 hover:text-slate-200"
-                  )}
-                >
-                  <Icon
+              if (item.isLive && item.href) {
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
                     className={cn(
-                      "h-3.5 w-3.5 transition",
-                      isActive ? "text-cyan-300" : "text-slate-400 group-hover:text-cyan-300"
+                      "group relative flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-200 shrink-0",
+                      isActive
+                        ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-200 shadow-sm"
+                        : "border-transparent text-slate-400 hover:border-slate-800 hover:bg-slate-900/60 hover:text-slate-200"
                     )}
-                  />
+                  >
+                    <Icon
+                      className={cn(
+                        "h-3.5 w-3.5 transition",
+                        isActive ? "text-cyan-300" : "text-slate-400 group-hover:text-cyan-300"
+                      )}
+                    />
+                    <span>{item.shortLabel ?? item.name}</span>
+                    <span className="flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-1.5 py-0.2 text-[0.55rem] font-bold uppercase tracking-wider text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.25)]">
+                      <span className="h-1 w-1 rounded-full bg-cyan-400 animate-pulse" />
+                      LIVE
+                    </span>
+                  </Link>
+                );
+              }
+
+              // Locked ("COMING SOON") module tab - completely disabled
+              return (
+                <div
+                  key={item.name}
+                  aria-disabled="true"
+                  title={`${item.name} is coming soon to ETNVerse Hub`}
+                  className="pointer-events-none select-none flex items-center gap-1.5 rounded-lg border border-transparent bg-slate-950/40 px-2.5 py-1.5 text-xs font-medium text-slate-500 opacity-60 cursor-not-allowed shrink-0"
+                >
+                  <Icon className="h-3.5 w-3.5 text-slate-600" />
                   <span>{item.shortLabel ?? item.name}</span>
-                  <span className="flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-1.5 py-0.2 text-[0.55rem] font-bold uppercase tracking-wider text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.25)]">
-                    <span className="h-1 w-1 rounded-full bg-cyan-400 animate-pulse" />
-                    LIVE
+                  <span className="rounded-full border border-slate-700 bg-slate-800/80 px-1.5 py-0.2 text-[0.55rem] font-medium uppercase tracking-wider text-slate-400">
+                    COMING SOON
                   </span>
-                </Link>
+                </div>
               );
-            }
+            })}
+          </nav>
 
-            // Locked ("COMING SOON") module tab - completely disabled
-            return (
-              <div
-                key={item.name}
-                aria-disabled="true"
-                title={`${item.name} is coming soon to ETNVerse Hub`}
-                className="pointer-events-none select-none flex items-center gap-1.5 rounded-lg border border-transparent bg-slate-950/40 px-2.5 py-1.5 text-xs font-medium text-slate-500 opacity-60 cursor-not-allowed shrink-0"
-              >
-                <Icon className="h-3.5 w-3.5 text-slate-600" />
-                <span>{item.shortLabel ?? item.name}</span>
-                <span className="rounded-full border border-slate-700 bg-slate-800/80 px-1.5 py-0.2 text-[0.55rem] font-medium uppercase tracking-wider text-slate-400">
-                  COMING SOON
-                </span>
-              </div>
-            );
-          })}
-        </nav>
+          {/* Right Actions: Explorer & Multi-Wallet Dropdown */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <a
+              href={ETN_EXPLORER_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="hidden lg:inline-flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-xs text-slate-400 transition hover:border-cyan-500/40 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
+            >
+              <span>Explorer</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
 
-        {/* Right Action: Block Explorer */}
-        <div className="hidden md:flex items-center shrink-0">
-          <a
-            href={ETN_EXPLORER_URL}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-xs text-slate-400 transition hover:border-cyan-500/40 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
-          >
-            <span>Explorer</span>
-            <ExternalLink className="h-3 w-3" />
-          </a>
+            <WalletDropdown />
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <WalletModal />
+    </>
   );
 }

@@ -13,7 +13,7 @@ import {
   getSavedWatchlist,
   removeFromWatchlist as deleteFromWatchlist,
 } from "@/lib/portfolio/watchlist";
-import { getEthereumProvider, type Eip1193Provider } from "@/lib/wallet";
+import { getEthereumProvider, useWalletContext, type Eip1193Provider } from "@/lib/wallet";
 
 export interface UsePortfolioOptions {
   initialAddress?: string;
@@ -28,9 +28,16 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
 
   const { initialAddress, mode = "portfolio" } = options;
 
-  const [provider, setProvider] = useState<Eip1193Provider | null>(null);
-  const [account, setAccount] = useState<Address | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
+  const {
+    account: globalAccount,
+    chainId: globalChainId,
+    provider: globalProvider,
+    openModal,
+  } = useWalletContext();
+
+  const [provider, setProvider] = useState<Eip1193Provider | null>(globalProvider);
+  const [account, setAccount] = useState<Address | null>(globalAccount);
+  const [chainId, setChainId] = useState<number | null>(globalChainId);
 
   // Active address being inspected:
   // In personal ("portfolio") mode, STRICTLY initialize as empty string unless a valid initialAddress was provided.
@@ -41,6 +48,9 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
     }
     if (mode === "explorer") {
       return DEFAULT_EXPLORER_ADDRESS;
+    }
+    if (globalAccount && isAddress(globalAccount)) {
+      return getAddress(globalAccount);
     }
     return "";
   });
@@ -70,6 +80,26 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
   const [revokingSpender, setRevokingSpender] = useState<string | null>(null);
   const [batchRevoking, setBatchRevoking] = useState<boolean>(false);
   const [revokeProgress, setRevokeProgress] = useState<{ current: number; total: number } | null>(null);
+
+  // 0. Synchronize with global wallet context
+  useEffect(() => {
+    if (globalAccount) {
+      setAccount(globalAccount);
+      setProvider(globalProvider);
+      setChainId(globalChainId);
+      if (mode === "portfolio" && !initialAddress) {
+        setTargetAddress(globalAccount);
+      }
+    } else if (globalAccount === null && account !== null) {
+      setAccount(null);
+      setProvider(null);
+      setChainId(null);
+      if (mode === "portfolio" && !initialAddress) {
+        setTargetAddress("");
+        setSummary(null);
+      }
+    }
+  }, [globalAccount, globalProvider, globalChainId, mode, initialAddress]);
 
   // 1. Initialise wallet provider & account synchronization
   useEffect(() => {
@@ -617,23 +647,8 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
   }, [isBundleMode, account, targetAddress]);
 
   const connectWallet = useCallback(async () => {
-    const injected = provider ?? getEthereumProvider();
-    if (!injected) {
-      window.open("https://metamask.io/download/", "_blank");
-      return;
-    }
-    try {
-      const res = await injected.request({ method: "eth_requestAccounts" });
-      const first = Array.isArray(res) && res[0] ? (res[0] as string) : null;
-      if (first && isAddress(first)) {
-        const checksum = getAddress(first);
-        setAccount(checksum);
-        setTargetAddress(checksum);
-      }
-    } catch (err) {
-      console.error("Wallet connection declined or failed:", err);
-    }
-  }, [provider]);
+    openModal();
+  }, [openModal]);
 
   return {
     targetAddress,

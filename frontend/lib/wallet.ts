@@ -1,24 +1,11 @@
 import { DEFAULT_CHAIN_ID, getChainConfig, type ChainConfig } from "./chains";
 import { DEFAULT_ETN_CHAIN } from "./etn";
+import type { Eip1193Provider, Eip1193RequestArguments } from "./wallet/types";
 
-interface Eip1193RequestArguments {
-  method: string;
-  params?: unknown[] | Record<string, unknown>;
-}
-
-/** Minimal EIP-1193 provider surface (MetaMask, Rabby, Coinbase, ...). */
-export interface Eip1193Provider {
-  request(args: Eip1193RequestArguments): Promise<unknown>;
-  isMetaMask?: boolean;
-  isRabby?: boolean;
-  isCoinbaseWallet?: boolean;
-}
-
-declare global {
-  interface Window {
-    ethereum?: Eip1193Provider;
-  }
-}
+export type { Eip1193Provider, Eip1193RequestArguments } from "./wallet/types";
+export * from "./wallet/types";
+export * from "./wallet/providers";
+export * from "./wallet/context";
 
 export const METAMASK_DOWNLOAD_URL = "https://metamask.io/download/";
 

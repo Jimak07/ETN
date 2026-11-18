@@ -38,15 +38,23 @@ import {
   removeCustomToken as deleteCustomToken,
 } from "@/lib/swap/tokens";
 import { ETN_MAINNET } from "@/lib/etn";
-import { getEthereumProvider, switchChain, type Eip1193Provider } from "@/lib/wallet";
+import { getEthereumProvider, switchChain, useWalletContext, type Eip1193Provider } from "@/lib/wallet";
 
 export type SwapPhase = "idle" | "signing" | "broadcasting" | "confirmed" | "error";
 
 export function useSwap() {
+  const {
+    account: globalAccount,
+    chainId: globalChainId,
+    provider: globalProvider,
+    openModal,
+    switchToElectroneum: globalSwitchToElectroneum,
+  } = useWalletContext();
+
   // --- Wallet & Network State ---
-  const [provider, setProvider] = useState<Eip1193Provider | null>(null);
-  const [account, setAccount] = useState<Address | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
+  const [provider, setProvider] = useState<Eip1193Provider | null>(globalProvider);
+  const [account, setAccount] = useState<Address | null>(globalAccount);
+  const [chainId, setChainId] = useState<number | null>(globalChainId);
   const [connecting, setConnecting] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
@@ -84,6 +92,22 @@ export function useSwap() {
   const [txError, setTxError] = useState<string | null>(null);
 
   const chainOk = chainId === ETN_MAINNET.id;
+
+  // 0. Synchronize with global wallet context
+  useEffect(() => {
+    if (globalAccount) {
+      setAccount(globalAccount);
+      setProvider(globalProvider);
+      setChainId(globalChainId);
+    } else if (globalAccount === null && account !== null) {
+      setAccount(null);
+      setProvider(null);
+      setChainId(null);
+      setPayBalance(null);
+      setReceiveBalance(null);
+      setAllowance(null);
+    }
+  }, [globalAccount, globalProvider, globalChainId]);
 
   // 1. Initialise wallet provider & account sync
   useEffect(() => {
@@ -179,52 +203,21 @@ export function useSwap() {
 
   const connect = useCallback(async () => {
     setWalletError(null);
-    const injected = provider ?? getEthereumProvider();
-    if (!injected) {
-      setWalletError("No EVM wallet detected. Install MetaMask or Rabby to swap.");
-      return;
-    }
-
-    setConnecting(true);
-    try {
-      const accounts = await injected.request({ method: "eth_requestAccounts" });
-      const first = Array.isArray(accounts) && accounts[0] ? (accounts[0] as string) : null;
-      if (!first || !isAddress(first)) {
-        setWalletError("The wallet returned no account.");
-        return;
-      }
-      setProvider(injected);
-      setAccount(getAddress(first));
-      const currentChain = await injected.request({ method: "eth_chainId" });
-      if (typeof currentChain === "string") {
-        setChainId(Number.parseInt(currentChain, 16));
-      }
-    } catch (err) {
-      setWalletError(err instanceof Error ? err.message : "Failed to connect wallet.");
-    } finally {
-      setConnecting(false);
-    }
-  }, [provider]);
+    openModal();
+  }, [openModal]);
 
   const switchToElectroneum = useCallback(async () => {
     setWalletError(null);
-    const injected = provider ?? getEthereumProvider();
-    if (!injected) return;
-
     setSwitching(true);
     try {
-      const res = await switchChain(injected, ETN_MAINNET.id);
-      if (!res.ok) {
-        setWalletError(res.message);
-        return;
+      const ok = await globalSwitchToElectroneum();
+      if (!ok) {
+        setWalletError("Failed to switch network to Electroneum Mainnet.");
       }
-      setChainId(ETN_MAINNET.id);
-    } catch (err) {
-      setWalletError(err instanceof Error ? err.message : "Network switch failed.");
     } finally {
       setSwitching(false);
     }
-  }, [provider]);
+  }, [globalSwitchToElectroneum]);
 
   // 3. Read Wallet Balances for Pay & Receive Tokens
   const refreshBalances = useCallback(async () => {

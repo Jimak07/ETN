@@ -42,7 +42,7 @@ import {
   isSupportedChain,
   type ChainConfig,
 } from "@/lib/chains";
-import { getEthereumProvider, switchChain, type Eip1193Provider } from "@/lib/wallet";
+import { getEthereumProvider, switchChain, useWalletContext, type Eip1193Provider } from "@/lib/wallet";
 
 /**
  * Wallet + send state machine for the batch sender.
@@ -145,12 +145,24 @@ async function requestAccounts(provider: Eip1193Provider): Promise<Address | nul
 }
 
 export function useMultiSender() {
-  const [provider, setProvider] = useState<Eip1193Provider | null>(null);
-  const [account, setAccount] = useState<Address | null>(null);
+  const {
+    account: globalAccount,
+    chainId: globalChainId,
+    provider: globalProvider,
+    openModal,
+  } = useWalletContext();
+
+  const [provider, setProvider] = useState<Eip1193Provider | null>(globalProvider);
+  const [account, setAccount] = useState<Address | null>(globalAccount);
   /** The raw chain ID reported by the connected wallet provider. */
-  const [walletChainId, setWalletChainId] = useState<number | null>(null);
+  const [walletChainId, setWalletChainId] = useState<number | null>(globalChainId);
   /** The chain ID the Multi-Sender UI is actively configured for (strictly defaults to Electroneum Mainnet). */
-  const [selectedChainId, setSelectedChainId] = useState<number>(DEFAULT_CHAIN_ID);
+  const [selectedChainId, setSelectedChainId] = useState<number>(() => {
+    if (globalChainId && isChainEnabled(globalChainId)) {
+      return globalChainId;
+    }
+    return DEFAULT_CHAIN_ID;
+  });
   /** Publicly exposed chain ID of the active module UI. */
   const chainId = selectedChainId;
 
@@ -226,6 +238,23 @@ export function useMultiSender() {
       : null;
   const configured = contractAddress !== null;
 
+  // --- global wallet synchronization ---------------------------------------
+  useEffect(() => {
+    if (globalAccount) {
+      setAccount(globalAccount);
+      setProvider(globalProvider);
+      setWalletChainId(globalChainId);
+      if (globalChainId && isChainEnabled(globalChainId)) {
+        setSelectedChainId(globalChainId);
+      }
+    } else if (globalAccount === null && account !== null) {
+      setAccount(null);
+      setProvider(null);
+      setWalletChainId(null);
+      setNativeBalance(null);
+    }
+  }, [globalAccount, globalProvider, globalChainId]);
+
   // --- wallet detection -----------------------------------------------------
 
   useEffect(() => {
@@ -288,34 +317,8 @@ export function useMultiSender() {
 
   const connect = useCallback(async () => {
     setConnectionError(null);
-    const injected = provider ?? getEthereumProvider();
-
-    if (!injected) {
-      setConnectionError("No EVM wallet detected. Install MetaMask or Rabby to send a batch.");
-      return;
-    }
-
-    setConnecting(true);
-    try {
-      const next = await requestAccounts(injected);
-      if (!next) {
-        setConnectionError("The wallet returned no account.");
-        return;
-      }
-      setProvider(injected);
-      setAccount(next);
-
-      const detected = asChainId(await injected.request({ method: "eth_chainId" }));
-      setWalletChainId(detected);
-      if (detected && isChainEnabled(detected)) {
-        setSelectedChainId(detected);
-      }
-    } catch (error) {
-      setConnectionError(describeSendError(error).detail);
-    } finally {
-      setConnecting(false);
-    }
-  }, [provider]);
+    openModal();
+  }, [openModal]);
 
   /**
    * Move the connected wallet onto one of the supported enabled networks.

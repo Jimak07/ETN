@@ -5,6 +5,7 @@ import "./globals.css";
 import { Geist } from "next/font/google";
 import { UtilityNav } from "@/components/utility-nav";
 import { cn } from "@/lib/utils";
+import { WalletProvider } from "@/lib/wallet";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -56,8 +57,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <div className="absolute -bottom-52 -right-24 h-[28rem] w-[28rem] rounded-full bg-emerald-500/[0.06] blur-[130px]" />
           <div className="bg-grid-slate absolute inset-0 opacity-[0.35]" />
         </div>
-        <UtilityNav />
-        {children}
+        <WalletProvider>
+          <UtilityNav />
+          {children}
+        </WalletProvider>
       </body>
     </html>
   );
