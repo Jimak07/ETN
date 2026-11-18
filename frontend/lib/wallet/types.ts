@@ -58,7 +58,11 @@ export interface WalletContextState {
   isModalOpen: boolean;
   openModal: () => void;
   closeModal: () => void;
-  connect: (wallet: EIP6963ProviderDetail) => Promise<boolean>;
+  connect: (
+    wallet: EIP6963ProviderDetail,
+    options?: { requestPermissions?: boolean }
+  ) => Promise<boolean>;
+  changeAccount: (wallet?: EIP6963ProviderDetail) => Promise<boolean>;
   disconnect: () => void;
   switchToElectroneum: () => Promise<boolean>;
   switchAccount: () => Promise<void>;

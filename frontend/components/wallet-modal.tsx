@@ -1,7 +1,15 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ExternalLink, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
+import {
+  ArrowRightLeft,
+  ExternalLink,
+  Loader2,
+  LogOut,
+  ShieldCheck,
+  Wallet,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import {
@@ -11,8 +19,18 @@ import {
 } from "@/lib/wallet";
 
 export function WalletModal() {
-  const { isModalOpen, closeModal, detectedWallets, connect, connecting } =
-    useWalletContext();
+  const {
+    isModalOpen,
+    closeModal,
+    detectedWallets,
+    activeWallet,
+    account,
+    connect,
+    changeAccount,
+    disconnect,
+    connecting,
+  } = useWalletContext();
+
   const [connectingRdns, setConnectingRdns] = useState<string | null>(null);
 
   // Close on Escape key press
@@ -29,10 +47,21 @@ export function WalletModal() {
 
   if (!isModalOpen) return null;
 
-  const handleConnect = async (w: EIP6963ProviderDetail) => {
+  // Switch to a different installed wallet (e.g. MetaMask -> OKX Wallet)
+  const handleSwitchToDifferentWallet = async (w: EIP6963ProviderDetail) => {
     setConnectingRdns(w.info.rdns);
     try {
-      await connect(w);
+      await connect(w, { requestPermissions: true });
+    } finally {
+      setConnectingRdns(null);
+    }
+  };
+
+  // Change account inside the currently active wallet extension
+  const handleChangeAccountOnActiveWallet = async (w: EIP6963ProviderDetail) => {
+    setConnectingRdns(w.info.rdns);
+    try {
+      await changeAccount(w);
     } finally {
       setConnectingRdns(null);
     }
@@ -75,10 +104,12 @@ export function WalletModal() {
                 id="wallet-modal-title"
                 className="text-base sm:text-lg font-bold text-slate-100 tracking-tight"
               >
-                Connect a Wallet
+                {account ? "Switch Wallet or Account" : "Connect a Wallet"}
               </h2>
               <p className="text-xs text-slate-400">
-                Electroneum Smart Chain (Chain 52014)
+                {account
+                  ? "Select a detected wallet to switch, or change account."
+                  : "Electroneum Smart Chain (Chain 52014)"}
               </p>
             </div>
           </div>
@@ -109,20 +140,34 @@ export function WalletModal() {
               <div className="space-y-2">
                 {detectedWallets.map((w) => {
                   const isThisConnecting = connecting && connectingRdns === w.info.rdns;
+                  const isActive = Boolean(
+                    account &&
+                      activeWallet &&
+                      (w.info.rdns.toLowerCase() === activeWallet.info.rdns.toLowerCase() ||
+                        w.info.name.toLowerCase() === activeWallet.info.name.toLowerCase())
+                  );
+
                   return (
-                    <button
+                    <div
                       key={w.info.rdns || w.info.uuid}
-                      type="button"
-                      disabled={connecting}
-                      onClick={() => handleConnect(w)}
                       className={cn(
                         "group w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left",
-                        "border-slate-800/80 bg-slate-950/60 hover:bg-cyan-950/30 hover:border-cyan-500/40",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50",
+                        isActive
+                          ? "border-cyan-500/60 bg-cyan-950/30 shadow-[0_0_15px_rgba(6,182,212,0.12)]"
+                          : "border-slate-800/80 bg-slate-950/60 hover:bg-cyan-950/30 hover:border-cyan-500/40",
                         isThisConnecting && "border-cyan-500 bg-cyan-950/40"
                       )}
                     >
-                      <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={connecting}
+                        onClick={() =>
+                          isActive
+                            ? handleChangeAccountOnActiveWallet(w)
+                            : handleSwitchToDifferentWallet(w)
+                        }
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left focus-visible:outline-none"
+                      >
                         <div className="h-9 w-9 rounded-lg overflow-hidden border border-slate-700/60 bg-slate-900 shrink-0 flex items-center justify-center p-1">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -131,30 +176,54 @@ export function WalletModal() {
                             className="h-full w-full object-contain"
                           />
                         </div>
-                        <div>
-                          <div className="text-sm font-semibold text-slate-100 group-hover:text-cyan-200 transition">
-                            {w.info.name}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-100 group-hover:text-cyan-200 transition truncate">
+                              {w.info.name}
+                            </span>
+                            {isActive && (
+                              <span className="flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.2 text-[0.62rem] font-bold text-cyan-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                Active
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[0.68rem] text-slate-400 font-mono">
-                            {w.info.rdns || "EIP-6963 Injected"}
+                          <div className="text-[0.68rem] text-slate-400 font-mono truncate">
+                            {isActive && account
+                              ? `${account.slice(0, 6)}...${account.slice(-4)}`
+                              : w.info.rdns || "EIP-6963 Injected"}
                           </div>
                         </div>
-                      </div>
+                      </button>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
                         {isThisConnecting ? (
                           <div className="flex items-center gap-1.5 text-xs text-cyan-400 font-medium">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <span>Connecting...</span>
+                            <span>{isActive ? "Selecting..." : "Switching..."}</span>
                           </div>
+                        ) : isActive ? (
+                          <button
+                            type="button"
+                            disabled={connecting}
+                            onClick={() => handleChangeAccountOnActiveWallet(w)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/25 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
+                          >
+                            <ArrowRightLeft className="h-3 w-3 text-cyan-400" />
+                            <span>Change Account</span>
+                          </button>
                         ) : (
-                          <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            Detected
-                          </span>
+                          <button
+                            type="button"
+                            disabled={connecting}
+                            onClick={() => handleSwitchToDifferentWallet(w)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-900/60 px-2.5 py-1 text-xs font-semibold text-slate-300 group-hover:border-cyan-500/40 group-hover:text-cyan-200 group-hover:bg-cyan-950/40 transition"
+                          >
+                            <span>{account ? "Switch Wallet" : "Connect"}</span>
+                          </button>
                         )}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -208,7 +277,26 @@ export function WalletModal() {
         </div>
 
         {/* Footer */}
-        <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-[0.68rem] text-slate-500">
+        {account && (
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+            <span className="font-mono text-[0.68rem] truncate max-w-[240px]">
+              Current: {account}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                disconnect();
+                closeModal();
+              }}
+              className="inline-flex items-center gap-1 text-[0.68rem] font-semibold text-rose-400 hover:text-rose-300 transition"
+            >
+              <LogOut className="h-3 w-3" />
+              <span>Disconnect Wallet</span>
+            </button>
+          </div>
+        )}
+
+        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[0.68rem] text-slate-500">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5 text-cyan-400/80" />
             <span>Non-custodial & secure via EIP-6963</span>

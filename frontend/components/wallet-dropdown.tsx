@@ -283,7 +283,7 @@ export function WalletDropdown() {
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                void switchAccount();
+                openModal();
               }}
               className="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800/80 hover:text-slate-100 transition"
             >

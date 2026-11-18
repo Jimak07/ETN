@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  ArrowRightLeft,
   ArrowUpRight,
   Check,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
   FileSpreadsheet,
   Flame,
   Layers,
+  LogOut,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -25,6 +27,7 @@ import { exportPortfolioSnapshotCsv, exportTaxLedgerCsv } from "@/lib/portfolio/
 import type { PortfolioSummary, Timeframe } from "@/lib/portfolio/types";
 import type { VerseUser } from "@/lib/supabase/server";
 import { cn } from "@/lib/cn";
+import { useWalletContext } from "@/lib/wallet";
 
 interface PortfolioHeaderProps {
   summary: PortfolioSummary | null;
@@ -45,6 +48,7 @@ export function PortfolioHeader({
   isMyPortfolio = false,
   versePoints,
 }: PortfolioHeaderProps) {
+  const { openModal, disconnect } = useWalletContext();
   const [csvMenuOpen, setCsvMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -133,6 +137,29 @@ export function PortfolioHeader({
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
+
+            {/* Quick Switch Wallet & Disconnect Actions */}
+            <span className="h-3.5 w-[1px] bg-emerald-500/30 mx-0.5" />
+
+            <button
+              type="button"
+              onClick={openModal}
+              title="Switch Wallet / Change Account"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/50 px-2 py-0.5 text-[0.68rem] font-semibold text-cyan-300 hover:border-cyan-400 hover:bg-cyan-900/60 hover:text-white transition shadow-sm"
+            >
+              <ArrowRightLeft className="h-3 w-3 text-cyan-400" />
+              <span>Switch Wallet</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={disconnect}
+              title="Disconnect Wallet"
+              className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-950/30 px-2 py-0.5 text-[0.68rem] font-semibold text-rose-400 hover:border-rose-400 hover:bg-rose-900/40 hover:text-rose-200 transition"
+            >
+              <LogOut className="h-3 w-3" />
+              <span>Disconnect</span>
+            </button>
           </div>
 
           {/* VersePoints & Loyalty Early Adopter Badge */}

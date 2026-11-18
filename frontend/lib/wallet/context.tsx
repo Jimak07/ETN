@@ -137,11 +137,37 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // Connect to a chosen wallet
   const connect = useCallback(
-    async (wallet: EIP6963ProviderDetail): Promise<boolean> => {
+    async (
+      wallet: EIP6963ProviderDetail,
+      options?: { requestPermissions?: boolean }
+    ): Promise<boolean> => {
       setConnecting(true);
       try {
         const p = wallet.provider;
-        const accountsResult = await p.request({ method: "eth_requestAccounts" });
+        let accountsResult: unknown = null;
+
+        if (options?.requestPermissions) {
+          try {
+            await p.request({
+              method: "wallet_requestPermissions",
+              params: [{ eth_accounts: {} }],
+            });
+            accountsResult = await p.request({ method: "eth_accounts" });
+          } catch {
+            accountsResult = await p.request({ method: "eth_requestAccounts" });
+          }
+        } else {
+          try {
+            accountsResult = await p.request({ method: "eth_requestAccounts" });
+          } catch {
+            await p.request({
+              method: "wallet_requestPermissions",
+              params: [{ eth_accounts: {} }],
+            });
+            accountsResult = await p.request({ method: "eth_accounts" });
+          }
+        }
+
         if (!Array.isArray(accountsResult) || accountsResult.length === 0) {
           throw new Error("No accounts returned from wallet.");
         }
@@ -186,6 +212,54 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [triggerCheckin]
   );
 
+  // Change account on a specific wallet (or active wallet) via wallet_requestPermissions
+  const changeAccount = useCallback(
+    async (wallet?: EIP6963ProviderDetail): Promise<boolean> => {
+      const target = wallet ?? activeWalletRef.current;
+      if (!target) {
+        setIsModalOpen(true);
+        return false;
+      }
+
+      setConnecting(true);
+      try {
+        const p = target.provider;
+        try {
+          await p.request({
+            method: "wallet_requestPermissions",
+            params: [{ eth_accounts: {} }],
+          });
+        } catch {
+          await p.request({ method: "eth_requestAccounts" });
+        }
+
+        const accounts = await p.request({ method: "eth_accounts" });
+        if (Array.isArray(accounts) && accounts.length > 0 && typeof accounts[0] === "string" && isAddress(accounts[0])) {
+          const checksummed = getAddress(accounts[0]);
+          setActiveWallet(target);
+          setProvider(p);
+          setAccount(checksummed);
+
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(PREFERRED_WALLET_STORAGE_KEY, target.info.rdns);
+          }
+
+          setIsModalOpen(false);
+          void triggerCheckin(checksummed);
+          void refreshBalance();
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.warn("[WalletContext] Failed to change account:", err);
+        return false;
+      } finally {
+        setConnecting(false);
+      }
+    },
+    [refreshBalance, triggerCheckin]
+  );
+
   // Disconnect wallet
   const disconnect = useCallback(() => {
     setActiveWallet(null);
@@ -221,32 +295,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [provider, refreshBalance]);
 
-  // Request account switch / permissions
+  // Request wallet switch / opens multi-wallet selector modal
   const switchAccount = useCallback(async () => {
-    const p = activeWalletRef.current?.provider ?? provider;
-    if (!p) {
-      setIsModalOpen(true);
-      return;
-    }
-
-    try {
-      // EIP-2255 wallet_requestPermissions allows prompting account picker
-      await p.request({
-        method: "wallet_requestPermissions",
-        params: [{ eth_accounts: {} }],
-      });
-      const accounts = await p.request({ method: "eth_accounts" });
-      if (Array.isArray(accounts) && accounts[0] && isAddress(accounts[0])) {
-        const next = getAddress(accounts[0]);
-        setAccount(next);
-        void triggerCheckin(next);
-        void refreshBalance();
-      }
-    } catch {
-      // If unsupported or declined, open the selector modal so user can switch wallet
-      setIsModalOpen(true);
-    }
-  }, [provider, refreshBalance, triggerCheckin]);
+    setIsModalOpen(true);
+  }, []);
 
   // 1. Initialize EIP-6963 discovery and sync detected wallets
   useEffect(() => {
@@ -365,6 +417,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     openModal,
     closeModal,
     connect,
+    changeAccount,
     disconnect,
     switchToElectroneum,
     switchAccount,
