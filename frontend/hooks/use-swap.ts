@@ -500,6 +500,43 @@ export function useSwap() {
           setSwapPhase("confirmed");
           setPayAmount("");
           void refreshBalances();
+
+          // Wire automatic, non-blocking telemetry & loyalty points recording
+          if (account) {
+            void fetch("/api/analytics", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "RECORD_ACTIVITY",
+                walletAddress: account,
+                actionType: "PULSESWAP_TRADE",
+                txHash: hash,
+                metadata: {
+                  tokenIn: payToken.symbol,
+                  tokenOut: receiveToken.symbol,
+                  tokenInAddress: payToken.address,
+                  tokenOutAddress: receiveToken.address,
+                  payAmount,
+                  volumeEtn: payToken.isNative
+                    ? Number(payAmount)
+                    : receiveToken.isNative
+                    ? Number(receiveAmount)
+                    : 0,
+                },
+              }),
+            })
+              .then(async (res) => {
+                const data = await res.json().catch(() => null);
+                if (!res.ok) {
+                  console.warn("[PulseSwap Telemetry Warning]:", res.status, data);
+                } else {
+                  console.log("[PulseSwap Telemetry Success]:", data);
+                }
+              })
+              .catch((err) => {
+                console.warn("[PulseSwap Telemetry Error]:", err);
+              });
+          }
         } else {
           setSwapPhase("error");
           setTxError("Swap transaction reverted on-chain.");

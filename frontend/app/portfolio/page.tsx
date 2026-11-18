@@ -38,6 +38,7 @@ import { WatchlistBar } from "@/components/portfolio/watchlist-bar";
 import { usePortfolio } from "@/hooks/use-portfolio";
 import { DEFAULT_EXPLORER_ADDRESS, IS_PREMIUM_USER } from "@/lib/constants/myverse";
 import { exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
+import type { VerseUser } from "@/lib/supabase/server";
 import { cn } from "@/lib/cn";
 
 type PortfolioViewMode = "portfolio" | "explorer";
@@ -94,6 +95,37 @@ function PortfolioPageContent() {
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("holdings");
+  const [verseProfile, setVerseProfile] = useState<VerseUser | null>(null);
+
+  // Trigger Daily Check-in & Fetch VersePoints loyalty profile for connected account
+  useEffect(() => {
+    if (!account || !isAddress(account)) {
+      setVerseProfile(null);
+      return;
+    }
+
+    // 1. Trigger daily active check-in (server rate-limits to 1 per 24h)
+    void fetch("/api/analytics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "DAILY_CHECKIN",
+        walletAddress: account,
+      }),
+    })
+      .then((res) => res.json())
+      .catch(() => {});
+
+    // 2. Fetch user loyalty profile & VersePoints
+    void fetch(`/api/analytics?address=${account}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && data.user) {
+          setVerseProfile(data.user);
+        }
+      })
+      .catch(() => {});
+  }, [account]);
 
   // Sync mode and address when searchParams change
   useEffect(() => {
@@ -301,6 +333,7 @@ function PortfolioPageContent() {
                   loading={loading}
                   activeAddress={account}
                   isMyPortfolio={true}
+                  versePoints={verseProfile}
                 />
 
                 {/* 4 Focused Personal Tabs (No Smart Money clutter in personal view) */}
@@ -407,6 +440,7 @@ function PortfolioPageContent() {
                         }
                         loading={loading}
                         canRevoke={!isBundleMode && Boolean(account)}
+                        walletAddress={account ?? undefined}
                         revokingSpender={revokingSpender}
                         batchRevoking={batchRevoking}
                         revokeProgress={revokeProgress}
@@ -674,6 +708,7 @@ function PortfolioPageContent() {
                     }
                     loading={loading}
                     canRevoke={!isWhaleMode && !isBundleMode && Boolean(account)}
+                    walletAddress={account ?? undefined}
                     revokingSpender={revokingSpender}
                     batchRevoking={batchRevoking}
                     revokeProgress={revokeProgress}

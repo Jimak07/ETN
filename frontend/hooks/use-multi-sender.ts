@@ -893,6 +893,38 @@ export function useMultiSender() {
             `Batch ${batch.index} was mined but reverted.`,
           );
           if (outcome === "unconfirmed") return;
+
+          // Wire automatic, non-blocking telemetry & loyalty points recording
+          if (account) {
+            void fetch("/api/analytics", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "RECORD_ACTIVITY",
+                walletAddress: account,
+                actionType: "PULSEDROP_BATCH",
+                txHash: hash,
+                metadata: {
+                  recipientCount: batch.recipients.length,
+                  asset,
+                  symbol,
+                  batchIndex: batch.index,
+                  totalBatches: batches.length,
+                },
+              }),
+            })
+              .then(async (res) => {
+                const data = await res.json().catch(() => null);
+                if (!res.ok) {
+                  console.warn("[PulseDrop Telemetry Warning]:", res.status, data);
+                } else {
+                  console.log("[PulseDrop Telemetry Success]:", data);
+                }
+              })
+              .catch((err) => {
+                console.warn("[PulseDrop Telemetry Error]:", err);
+              });
+          }
         }
 
         setProgress((previous) => ({

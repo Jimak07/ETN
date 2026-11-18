@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { erc20Abi, getAddress, isAddress, type Address } from "viem";
+import { erc20Abi, getAddress, isAddress, type Address, type Hash } from "viem";
 
 import { DEFAULT_EXPLORER_ADDRESS, STORAGE_KEYS } from "@/lib/constants/myverse";
 import { ETN_MAINNET } from "@/lib/etn";
@@ -179,6 +179,25 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
     }
   }, []);
 
+  // 2b. Sync Watchlist with Cloud when account connects
+  useEffect(() => {
+    if (!account) return;
+    void fetch(`/api/analytics?address=${account}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.watchlist) && data.watchlist.length > 0) {
+          const currentLocal = getSavedWatchlist();
+          if (currentLocal.length === 0) {
+            for (const item of data.watchlist) {
+              saveToWatchlist(item.address, item.label);
+            }
+            setWatchlist(getSavedWatchlist());
+          }
+        }
+      })
+      .catch(() => {});
+  }, [account]);
+
   // Update localStorage when preferences change
   const handleTimeframeChange = useCallback((tf: Timeframe) => {
     setTimeframe(tf);
@@ -298,12 +317,34 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
         setSelectedBundleAddresses((prev) =>
           prev.filter((a) => a.toLowerCase() !== targetAddress.toLowerCase())
         );
+        if (account) {
+          void fetch("/api/analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "SYNC_WATCHLIST",
+              walletAddress: account,
+              watchlist: updated,
+            }),
+          }).catch(() => {});
+        }
       } else {
         const updated = saveToWatchlist(targetAddress, label || "Saved Wallet");
         setWatchlist(updated);
+        if (account) {
+          void fetch("/api/analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "SYNC_WATCHLIST",
+              walletAddress: account,
+              watchlist: updated,
+            }),
+          }).catch(() => {});
+        }
       }
     },
-    [targetAddress, isWatchlisted]
+    [targetAddress, isWatchlisted, account]
   );
 
   const selectAddress = useCallback((newAddress: string) => {
@@ -381,7 +422,10 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
 
   // 5. Revoke Shield Actions
   const revokeAllowance = useCallback(
-    async (tokenAddress: Address, spenderAddress: Address): Promise<boolean> => {
+    async (
+      tokenAddress: Address,
+      spenderAddress: Address
+    ): Promise<{ success: boolean; txHash: Hash } | boolean> => {
       if (!provider || !account) {
         throw new Error("Wallet not connected");
       }
@@ -415,6 +459,33 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
         if (client) {
           await client.waitForTransactionReceipt({ hash });
         }
+
+        // Wire automatic, non-blocking telemetry & loyalty points recording
+        void fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "RECORD_ACTIVITY",
+            walletAddress: account,
+            actionType: "REVOKE_APPROVAL",
+            txHash: hash,
+            metadata: {
+              tokenAddress: validToken,
+              spenderAddress: validSpender,
+            },
+          }),
+        })
+          .then(async (res) => {
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+              console.warn("[Revoke Telemetry Warning]:", res.status, data);
+            } else {
+              console.log("[Revoke Telemetry Success]:", data);
+            }
+          })
+          .catch((err) => {
+            console.warn("[Revoke Telemetry Error]:", err);
+          });
         if (summary) {
           setSummary((prev) => {
             if (!prev) return prev;
@@ -434,7 +505,7 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
             };
           });
         }
-        return true;
+        return { success: true, txHash: hash };
       } finally {
         setRevokingSpender(null);
       }
@@ -489,6 +560,23 @@ export function usePortfolio(initialAddressOrOptions?: string | UsePortfolioOpti
             }
             successful++;
             revokedKeys.add(`${validToken.toLowerCase()}-${validSpender.toLowerCase()}`);
+
+            // Wire automatic, non-blocking telemetry & loyalty points recording
+            void fetch("/api/analytics", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "RECORD_ACTIVITY",
+                walletAddress: account,
+                actionType: "REVOKE_APPROVAL",
+                txHash: hash,
+                metadata: {
+                  tokenAddress: validToken,
+                  spenderAddress: validSpender,
+                  batch: true,
+                },
+              }),
+            }).catch(() => {});
           } catch (err) {
             console.error(`Failed to revoke ${item.tokenSymbol} for ${item.spenderName}:`, err);
             failed++;

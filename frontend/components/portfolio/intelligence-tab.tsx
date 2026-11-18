@@ -30,10 +30,14 @@ interface IntelligenceTabProps {
   intelligence: WalletIntelligence;
   loading: boolean;
   canRevoke?: boolean;
+  walletAddress?: string | null;
   revokingSpender?: string | null;
   batchRevoking?: boolean;
   revokeProgress?: { current: number; total: number } | null;
-  onRevoke?: (tokenAddress: Address, spenderAddress: Address) => Promise<boolean>;
+  onRevoke?: (
+    tokenAddress: Address,
+    spenderAddress: Address
+  ) => Promise<boolean | string | { success: boolean; txHash?: string }>;
   onBatchRevoke?: (approvals: TokenApprovalItem[]) => Promise<{ successful: number; failed: number }>;
   onExportTaxLedger?: () => void;
 }
@@ -42,6 +46,7 @@ export function IntelligenceTab({
   intelligence,
   loading,
   canRevoke = false,
+  walletAddress = null,
   revokingSpender = null,
   batchRevoking = false,
   revokeProgress = null,
@@ -74,7 +79,31 @@ export function IntelligenceTab({
     if (!onRevoke) return;
     setRevokeFeedback(null);
     try {
-      await onRevoke(tokenAddress, spenderAddress);
+      const res = await onRevoke(tokenAddress, spenderAddress);
+      const txHash =
+        typeof res === "string"
+          ? res
+          : typeof res === "object" && res && "txHash" in res
+          ? (res as { txHash?: string }).txHash
+          : null;
+
+      if (txHash && walletAddress) {
+        void fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "RECORD_ACTIVITY",
+            walletAddress,
+            actionType: "REVOKE_APPROVAL",
+            txHash,
+            metadata: {
+              tokenAddress,
+              spenderAddress,
+            },
+          }),
+        }).catch(() => {});
+      }
+
       setRevokeFeedback("Allowance revoked successfully.");
       setTimeout(() => setRevokeFeedback(null), 4000);
     } catch (err) {

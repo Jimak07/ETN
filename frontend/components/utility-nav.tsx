@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   Activity,
   ArrowLeftRight,
@@ -12,9 +13,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isAddress } from "viem";
 
 import { cn } from "@/lib/cn";
 import { ETN_CHAIN_ID, ETN_CHAIN_NAME, ETN_EXPLORER_URL } from "@/lib/etn";
+import { getEthereumProvider } from "@/lib/wallet";
 
 interface NavModule {
   name: string;
@@ -83,6 +86,75 @@ const NAV_MODULES: readonly NavModule[] = [
  */
 export function UtilityNav() {
   const pathname = usePathname();
+
+  // Universal Daily Check-in & Activity Backfill trigger whenever a wallet connects on ANY page
+  useEffect(() => {
+    const provider = getEthereumProvider();
+    if (!provider) return;
+
+    let handledAddress: string | null = null;
+
+    const triggerUniversalCheckin = async (rawAddress: unknown) => {
+      if (typeof rawAddress !== "string" || !isAddress(rawAddress)) return;
+      const normalized = rawAddress.toLowerCase();
+      if (handledAddress === normalized) return;
+
+      // Session debounce: avoid spamming within the same session/minute
+      const sessionKey = `verse_checkin_${normalized}`;
+      const last = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(sessionKey) : null;
+      const now = Date.now();
+      if (last && now - Number(last) < 60_000) return;
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(sessionKey, String(now));
+      }
+      handledAddress = normalized;
+
+      try {
+        await fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "DAILY_CHECKIN",
+            walletAddress: normalized,
+          }),
+        });
+      } catch (err) {
+        console.warn("[UtilityNav] Universal wallet check-in trigger:", err);
+      }
+    };
+
+    // 1. Initial accounts lookup
+    provider
+      .request({ method: "eth_accounts" })
+      .then((accounts) => {
+        if (Array.isArray(accounts) && accounts[0]) {
+          void triggerUniversalCheckin(accounts[0]);
+        }
+      })
+      .catch(() => {});
+
+    // 2. Listen to accountsChanged event
+    const handleAccountsChanged = (accounts: unknown) => {
+      if (Array.isArray(accounts) && accounts[0]) {
+        void triggerUniversalCheckin(accounts[0]);
+      }
+    };
+
+    const providerObj = provider as {
+      on?: (event: string, handler: (accounts: unknown) => void) => void;
+      removeListener?: (event: string, handler: (accounts: unknown) => void) => void;
+    };
+
+    if (typeof providerObj.on === "function") {
+      providerObj.on("accountsChanged", handleAccountsChanged);
+    }
+
+    return () => {
+      if (typeof providerObj.removeListener === "function") {
+        providerObj.removeListener("accountsChanged", handleAccountsChanged);
+      }
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">

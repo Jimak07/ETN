@@ -23,6 +23,7 @@ import { InfoTooltip, WEB3_GLOSSARY } from "@/components/ui/info-tooltip";
 import { ETN_EXPLORER_URL } from "@/lib/etn";
 import { exportPortfolioSnapshotCsv, exportTaxLedgerCsv } from "@/lib/portfolio/export-csv";
 import type { PortfolioSummary, Timeframe } from "@/lib/portfolio/types";
+import type { VerseUser } from "@/lib/supabase/server";
 import { cn } from "@/lib/cn";
 
 interface PortfolioHeaderProps {
@@ -32,6 +33,7 @@ interface PortfolioHeaderProps {
   loading: boolean;
   activeAddress?: string | null;
   isMyPortfolio?: boolean;
+  versePoints?: VerseUser | null;
 }
 
 export function PortfolioHeader({
@@ -41,6 +43,7 @@ export function PortfolioHeader({
   loading,
   activeAddress,
   isMyPortfolio = false,
+  versePoints,
 }: PortfolioHeaderProps) {
   const [csvMenuOpen, setCsvMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -85,50 +88,75 @@ export function PortfolioHeader({
       {/* Top cyan gradient highlight line */}
       <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent pointer-events-none" />
 
-      {/* Connected Wallet Address Verification Pill (Requirement 4) */}
+      {/* Connected Wallet Address Verification Pill & VersePoints Badge */}
       {isMyPortfolio && activeAddress && isAddress(activeAddress) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/25 px-3 py-1.5 text-xs shadow-sm">
-          <InfoTooltip
-            term={WEB3_GLOSSARY.eoa.term}
-            definition={WEB3_GLOSSARY.eoa.definition}
-          >
-            <div className="flex items-center gap-1.5 cursor-help">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-              </span>
-              <span className="font-semibold text-emerald-400 text-[0.68rem] uppercase tracking-wider">
-                Connected Wallet
-              </span>
-            </div>
-          </InfoTooltip>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/25 px-3 py-1.5 text-xs shadow-sm">
+            <InfoTooltip
+              term={WEB3_GLOSSARY.eoa.term}
+              definition={WEB3_GLOSSARY.eoa.definition}
+            >
+              <div className="flex items-center gap-1.5 cursor-help">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                </span>
+                <span className="font-semibold text-emerald-400 text-[0.68rem] uppercase tracking-wider">
+                  Connected Wallet
+                </span>
+              </div>
+            </InfoTooltip>
 
-          <span className="font-mono text-xs font-bold text-slate-100">
-            {activeAddress}
-          </span>
+            <span className="font-mono text-xs font-bold text-slate-100">
+              {activeAddress}
+            </span>
 
-          <button
-            type="button"
-            onClick={() => handleCopyAddress(activeAddress)}
-            title="Copy wallet address"
-            className="p-1 rounded text-slate-400 hover:text-emerald-300 transition"
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => handleCopyAddress(activeAddress)}
+              title="Copy wallet address"
+              className="p-1 rounded text-slate-400 hover:text-emerald-300 transition"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </button>
 
-          <a
-            href={`${ETN_EXPLORER_URL}/address/${activeAddress}`}
-            target="_blank"
-            rel="noreferrer noopener"
-            title="Verify on Blockscout Explorer"
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 transition"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+            <a
+              href={`${ETN_EXPLORER_URL}/address/${activeAddress}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              title="Verify on Blockscout Explorer"
+              className="p-1 rounded text-slate-400 hover:text-cyan-300 transition"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+
+          {/* VersePoints & Loyalty Early Adopter Badge */}
+          {versePoints && (
+            <InfoTooltip
+              term="VersePoints Loyalty & Airdrop Tier"
+              definition="Loyalty score earned from on-chain swaps, batch distributions, allowance revokes, and daily check-ins. Used for future airdrop allocations and fee rebates."
+            >
+              <div className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-amber-400/10 to-cyan-500/10 px-3 py-1.5 text-xs shadow-[0_0_15px_rgba(245,158,11,0.2)] cursor-help">
+                <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="font-mono">{versePoints.total_points.toLocaleString()}</span>
+                  <span className="text-[0.65rem] uppercase tracking-wider">VersePoints</span>
+                </div>
+                <span className="rounded bg-amber-400/20 px-1.5 py-0.5 text-[0.58rem] font-bold uppercase tracking-wider text-amber-300 border border-amber-400/40">
+                  Early Adopter
+                </span>
+                <span className="text-slate-600">·</span>
+                <span className="text-[0.68rem] text-slate-300 font-mono">
+                  {versePoints.swap_count} Swaps · {versePoints.drop_batch_count} Batches · {versePoints.active_days_streak}d Streak
+                </span>
+              </div>
+            </InfoTooltip>
+          )}
         </div>
       )}
 
